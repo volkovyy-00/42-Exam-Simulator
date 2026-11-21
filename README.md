@@ -49,6 +49,7 @@ Then:
 ```sh
 cp .env.example .env               # set SESSION_SECRET
 docker compose --profile build build
+mkdir -p data && sudo chown 1000:1000 data   # SQLite; web runs as uid 1000
 docker compose up -d
 sudo tailscale serve --bg 8042     # https://<pi>.<tailnet>.ts.net
 ```

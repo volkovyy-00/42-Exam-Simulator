@@ -6,5 +6,5 @@
 # (setsid + timeout -s KILL, ulimit -t/-s, head -c max+1, process-group kill).
 # python3-minimal is in the image for JSON and base64 handling; replace it if you prefer.
 set -eu
-cp -r /in/. /work/ 2>/dev/null || true
+cp -r /in/. /work/
 printf '%s\n' '{"runner_version":"stub","stage":"compile","compile_ok":false,"compile_stderr":"runner not implemented yet (WP1)","nm_symbols":[],"forbidden":[],"link_ok":false,"link_stderr":"","tests":[]}'
