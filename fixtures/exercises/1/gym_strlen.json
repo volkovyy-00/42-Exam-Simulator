@@ -1,0 +1,20 @@
+{
+  "id": "gym_strlen",
+  "level": 1,
+  "kind": "function",
+  "expected_files": ["gym_strlen.c"],
+  "allowed_functions": [],
+  "prototype": "int\tgym_strlen(char *str);",
+  "subject_md": "Write a function that returns the number of characters in a string, not counting the terminating `\\0`.\n\nPrototype:\n\n```c\nint\tgym_strlen(char *str);\n```",
+  "subject_source": "original",
+  "harness": { "main": "harness/gym_strlen/main.c", "includes": [], "cflags_extra": ["-std=gnu17"] },
+  "tests": [
+    { "id": "01", "visible": true,  "argv": ["hello"], "stdin": null, "expected_stdout_b64": "NQo=", "expected_exit": 0 },
+    { "id": "02", "visible": false, "argv": [""], "stdin": null, "expected_stdout_b64": "MAo=", "expected_exit": 0 },
+    { "id": "03", "visible": false, "argv": ["a b\tc"], "stdin": null, "expected_stdout_b64": "NQo=", "expected_exit": 0 }
+  ],
+  "limits": { "timeout_ms": 2000, "max_output_bytes": 65536 },
+  "reference_path": "refs/gym_strlen.c",
+  "provenance": { "repo": "c-exam-gym", "commit": null, "license_code": "MIT", "license_subject": "MIT" },
+  "hint_tags": ["strings", "loops"]
+}

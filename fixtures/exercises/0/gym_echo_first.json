@@ -1,0 +1,22 @@
+{
+  "id": "gym_echo_first",
+  "level": 0,
+  "kind": "program",
+  "expected_files": ["gym_echo_first.c"],
+  "allowed_functions": ["write"],
+  "prototype": null,
+  "subject_md": "Write a program that takes exactly one argument and prints it, followed by a newline.\n\nWith any other number of arguments, the program prints only a newline.\n\n```\n$> ./gym_echo_first \"hi there\" | cat -e\nhi there$\n$> ./gym_echo_first | cat -e\n$\n```",
+  "subject_source": "original",
+  "harness": { "main": null, "includes": [], "cflags_extra": ["-std=gnu17"] },
+  "tests": [
+    { "id": "01", "visible": true,  "argv": ["abc"], "stdin": null, "expected_stdout_b64": "YWJjCg==", "expected_exit": 0 },
+    { "id": "02", "visible": false, "argv": [], "stdin": null, "expected_stdout_b64": "Cg==", "expected_exit": 0 },
+    { "id": "03", "visible": false, "argv": ["a", "b"], "stdin": null, "expected_stdout_b64": "Cg==", "expected_exit": 0 },
+    { "id": "04", "visible": false, "argv": [""], "stdin": null, "expected_stdout_b64": "Cg==", "expected_exit": 0 },
+    { "id": "05", "visible": false, "argv": ["  two  words "], "stdin": null, "expected_stdout_b64": "ICB0d28gIHdvcmRzIAo=", "expected_exit": 0 }
+  ],
+  "limits": { "timeout_ms": 2000, "max_output_bytes": 65536 },
+  "reference_path": "refs/gym_echo_first.c",
+  "provenance": { "repo": "c-exam-gym", "commit": null, "license_code": "MIT", "license_subject": "MIT" },
+  "hint_tags": ["argv", "write"]
+}

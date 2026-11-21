@@ -1,0 +1,21 @@
+{
+  "name": "c-exam-gym",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "workspaces": ["contract", "api", "web", "grader/dispatcher"],
+  "scripts": {
+    "dev:api": "npm run dev -w api",
+    "dev:dispatcher": "npm run dev -w grader/dispatcher",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.3"
+  }
+}

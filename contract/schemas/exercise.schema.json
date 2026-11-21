@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://c-exam-gym.local/schemas/exercise.schema.json",
+  "title": "Exercise",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "level", "kind", "expected_files", "allowed_functions", "prototype",
+               "subject_md", "subject_source", "harness", "tests", "limits",
+               "reference_path", "provenance", "hint_tags"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "level": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "kind": { "enum": ["program", "function"] },
+    "expected_files": {
+      "type": "array", "minItems": 1, "maxItems": 1,
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_]+\\.c$" }
+    },
+    "allowed_functions": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+    },
+    "prototype": { "type": ["string", "null"] },
+    "subject_md": { "type": "string", "minLength": 1 },
+    "subject_source": { "enum": ["42-derived-private", "original"] },
+    "harness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["main", "includes", "cflags_extra"],
+      "properties": {
+        "main": { "type": ["string", "null"] },
+        "includes": { "type": "array", "items": { "type": "string" } },
+        "cflags_extra": { "type": "array", "items": { "type": "string", "pattern": "^-" } }
+      }
+    },
+    "tests": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "visible", "argv", "stdin", "expected_stdout_b64", "expected_exit"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[0-9]{2}$" },
+          "visible": { "type": "boolean" },
+          "argv": { "type": "array", "items": { "type": "string" } },
+          "stdin": { "type": ["string", "null"] },
+          "expected_stdout_b64": { "type": "string", "contentEncoding": "base64" },
+          "expected_exit": { "type": "integer", "minimum": 0, "maximum": 255 }
+        }
+      }
+    },
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["timeout_ms", "max_output_bytes"],
+      "properties": {
+        "timeout_ms": { "type": "integer", "minimum": 100, "maximum": 10000 },
+        "max_output_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+      }
+    },
+    "reference_path": { "type": "string", "pattern": "^refs/[A-Za-z0-9_]+\\.c$" },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repo", "commit", "license_code", "license_subject"],
+      "properties": {
+        "repo": { "type": "string" },
+        "commit": { "type": ["string", "null"] },
+        "license_code": { "type": "string" },
+        "license_subject": { "type": "string" }
+      }
+    },
+    "hint_tags": { "type": "array", "items": { "type": "string" } },
+    "allow_asm": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "function" } } },
+      "then": { "properties": { "prototype": { "type": "string" },
+                                "harness": { "properties": { "main": { "type": "string" } } } } }
+    }
+  ]
+}

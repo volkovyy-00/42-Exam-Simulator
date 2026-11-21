@@ -1,0 +1,63 @@
+# C Exam Gym on the Pi 5. DESIGN.md §2 and §10.
+#   docker compose --profile build build   # also builds the grader:pinned sandbox image
+#   docker compose up -d
+# Host prerequisites (README): cgroup_enable=memory, patched kernel, /srv/grader/jobs exists,
+# `sudo tailscale serve --bg 8042`.
+name: c-exam-gym
+
+services:
+  web:
+    build: { context: ., dockerfile: api/Dockerfile }
+    restart: unless-stopped
+    env_file: { path: .env, required: false }
+    environment:
+      DATA_DIR: /data
+      CONTENT_DIR: /content
+      DISPATCHER_URL: http://grader-dispatcher:9000
+    ports:
+      - "127.0.0.1:8042:8042"        # Tailscale serve only; never 0.0.0.0
+    volumes:
+      - ./data:/data
+      - ./content:/content:ro
+    networks: [internal, egress]      # egress: OpenRouter for hints
+    mem_limit: 512m
+    depends_on: [grader-dispatcher]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8042/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # No docker.sock here, ever.
+
+  grader-dispatcher:
+    build: { context: ., dockerfile: grader/dispatcher/Dockerfile }
+    restart: unless-stopped
+    env_file: { path: .env, required: false }
+    environment:
+      CONTENT_DIR: /content
+      JOBS_DIR: /srv/grader/jobs
+      GRADER_IMAGE: grader:pinned
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./content:/content:ro
+      - /srv/grader/jobs:/srv/grader/jobs   # same path as on the host: the daemon resolves bind paths there
+    networks: [internal]              # no published ports, no internet
+    mem_limit: 192m
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Sandbox image only: built, never started by compose, never pulled at grade time.
+  grader-image:
+    build: { context: grader/image }
+    image: grader:pinned
+    profiles: [build]
+    network_mode: none
+    entrypoint: ["true"]
+
+networks:
+  internal:
+    internal: true
+  egress: {}

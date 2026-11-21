@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+data/
+# 42-derived pool: © 42 / École 42, never commit
+content/*
+!content/README.md
+*.sqlite
+*.sqlite-*
+.DS_Store

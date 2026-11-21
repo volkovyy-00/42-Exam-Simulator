@@ -1,0 +1,23 @@
+{
+  "name": "api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.ts",
+    "start": "node src/server.ts",
+    "typecheck": "tsc -p .",
+    "test": "node --test test/*.test.ts",
+    "admin:create": "node scripts/admin.ts create",
+    "admin:invite": "node scripts/admin.ts invite"
+  },
+  "dependencies": {
+    "@ceg/contract": "*",
+    "@fastify/static": "^10.1.12",
+    "better-sqlite3": "^12.11.1",
+    "fastify": "^5.12.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13"
+  }
+}

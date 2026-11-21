@@ -1,0 +1,16 @@
+{
+  "name": "grader-dispatcher",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.ts",
+    "start": "node src/server.ts",
+    "typecheck": "tsc -p .",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@ceg/contract": "*",
+    "fastify": "^5.12.8"
+  }
+}

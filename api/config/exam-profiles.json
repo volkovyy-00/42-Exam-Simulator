@@ -1,0 +1,41 @@
+[
+  {
+    "id": "piscine_exam",
+    "label": "Piscine exam (4 h)",
+    "enabled": true,
+    "duration_min": 240,
+    "slots": [0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5],
+    "points": [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 10],
+    "pass_mark": 30,
+    "fail_policy": "new_exercise",
+    "decay": [],
+    "cooldown_min": [0.5, 2.5, 3, 5.5, 8.5, 14, 22.5],
+    "approximation_note": "Scoring, cooldown and timeouts approximate the real exam. They are not official."
+  },
+  {
+    "id": "piscine_final",
+    "label": "Piscine final exam (8 h)",
+    "enabled": true,
+    "duration_min": 480,
+    "slots": [0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5],
+    "points": [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 10],
+    "pass_mark": 30,
+    "fail_policy": "new_exercise",
+    "decay": [],
+    "cooldown_min": [0.5, 2.5, 3, 5.5, 8.5, 14, 22.5],
+    "approximation_note": "Scoring, cooldown and timeouts approximate the real exam. They are not official."
+  },
+  {
+    "id": "rank02",
+    "label": "Common Core Rank 02 (3 h)",
+    "enabled": false,
+    "duration_min": 180,
+    "slots": [1, 2, 3, 4],
+    "points": [25, 25, 25, 25],
+    "pass_mark": 100,
+    "fail_policy": "same_exercise",
+    "decay": [],
+    "cooldown_min": [0.5, 2.5, 3, 5.5, 8.5, 14, 22.5],
+    "approximation_note": "Disabled: needs the Rank 02 exercise pool, which is not imported."
+  }
+]
