@@ -598,9 +598,7 @@ docker run --rm --name grade-<job_id> --network none --cap-drop ALL \
   --cpus 1 --ulimit nofile=64:64 --ulimit fsize=8388608:8388608 --ulimit core=0:0 \
   --ulimit cpu=20:20 --log-opt max-size=1m grader:pinned /runner.sh
 ```
-Default seccomp, never `--privileged`. `/work` is owned by 65534:65534 (`uid=`/`gid=` on the
-tmpfs), so the runner can write it whatever default mode the Docker version gives a tmpfs
-(Docker 29 uses root-owned `1777`; a root-owned tmpfs without that mode is not writable). Outer
+Default seccomp, never `--privileged`. Docker copies the mode of the image's /work (root 755 from WORKDIR) onto the tmpfs, so without uid=/gid= uid 65534 cannot write it (verified on Docker 26.1 and 29.10). The uid=65534,gid=65534 option is required. Outer
 kill after the per-job deadline in §6.5 (30 s by default): `docker kill`, then `docker rm -f`
 and job dir removal in a `finally`.
 
@@ -706,9 +704,10 @@ enforces 1 in flight per `user_id` as a backstop.
 | `COMPILE_TIMEOUT_S`, `TEST_TIMEOUT_S`, `TEST_CPU_S`, `SUBMISSION_TIMEOUT_S`, `GRADER_CONCURRENCY`, `GRADER_QUEUE_MAX`, `GRADER_IMAGE`, `JOBS_DIR` | dispatcher | §6.5 |
 
 Only `web` loads `.env` (`env_file`, optional). `grader-dispatcher` holds `docker.sock`, so it has
-no `env_file`: compose passes it only its own vars (the dispatcher rows above plus
-`CONTENT_DIR`) through `environment:` with `${VAR:-default}` interpolation, which reads `.env`
-at `docker compose` time. `OPENROUTER_API_KEY` and `SESSION_SECRET` never reach it. A new
+no `env_file`: compose passes it only its own vars through `environment:`, the tunables with
+`${VAR:-default}` interpolation (which reads `.env` at `docker compose` time) and the
+in-container paths `CONTENT_DIR=/content` and `JOBS_DIR=/srv/grader/jobs` hard-coded so they
+always match its mounts. `OPENROUTER_API_KEY` and `SESSION_SECRET` never reach it. A new
 dispatcher var must be added to that list in `docker-compose.yml`.
 
 ## 10. Deployment notes

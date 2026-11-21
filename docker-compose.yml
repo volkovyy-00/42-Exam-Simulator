@@ -42,8 +42,8 @@ services:
       GRADER_CONCURRENCY: ${GRADER_CONCURRENCY:-2}
       GRADER_QUEUE_MAX: ${GRADER_QUEUE_MAX:-20}
       GRADER_IMAGE: ${GRADER_IMAGE:-grader:pinned}
-      JOBS_DIR: ${JOBS_DIR:-/srv/grader/jobs}
-      CONTENT_DIR: ${CONTENT_DIR:-/content}
+      JOBS_DIR: /srv/grader/jobs      # fixed: must match the mount below
+      CONTENT_DIR: /content           # fixed: must match the mount below
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./content:/content:ro
