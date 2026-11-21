@@ -592,13 +592,15 @@ job.json                RunnerJob (below). No expected output, no reference.
 ```
 docker run --rm --name grade-<job_id> --network none --cap-drop ALL \
   --security-opt no-new-privileges --user 65534:65534 --read-only \
-  --tmpfs /work:rw,exec,nosuid,nodev,size=16m --tmpfs /tmp:rw,noexec,nosuid,nodev,size=8m \
+  --tmpfs /work:rw,exec,nosuid,nodev,size=16m,uid=65534,gid=65534 \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=8m \
   -v /srv/grader/jobs/<job_id>/in:/in:ro --pids-limit 64 --memory 256m --memory-swap 256m \
   --cpus 1 --ulimit nofile=64:64 --ulimit fsize=8388608:8388608 --ulimit core=0:0 \
   --ulimit cpu=20:20 --log-opt max-size=1m grader:pinned /runner.sh
 ```
-Default seccomp, never `--privileged`. Outer kill after `SUBMISSION_TIMEOUT_S` (30 s):
-`docker kill`, then `docker rm -f` and job dir removal in a `finally`.
+Default seccomp, never `--privileged`. Docker copies the mode of the image's /work (root 755 from WORKDIR) onto the tmpfs, so without uid=/gid= uid 65534 cannot write it (verified on Docker 26.1 and 29.10). The uid=65534,gid=65534 option is required. Outer
+kill after the per-job deadline in §6.5 (30 s by default): `docker kill`, then `docker rm -f`
+and job dir removal in a `finally`.
 
 `runner.sh` copies `/in` to `/work` and runs:
 1. Compile A: `cc -Wall -Wextra -Werror <cflags_extra> -c <student> -o student.o` (10 s).
@@ -648,6 +650,13 @@ could forge this JSON. That only cheats the student.)
 | `GRADER_IMAGE` | `grader:pinned` |
 | `JOBS_DIR` | `/srv/grader/jobs` |
 
+**Outer kill.** For each job the dispatcher sets the outer `docker kill` deadline to
+`min(60 s, max(SUBMISSION_TIMEOUT_S, COMPILE_TIMEOUT_S + n_tests × test_timeout + 10 s))`,
+where `test_timeout` is the effective per-test wall timeout (after `limits.timeout_ms`) and
+`n_tests` the exercise's test count. So the default 30 s never cuts short an exercise whose
+tests legitimately need longer (e.g. 10 s per test), up to the 60 s cap, and no job ever holds
+a grader slot for more than 60 s.
+
 Per-user limits (1 job in flight, 6 submissions/min) are enforced in `api`; the dispatcher also
 enforces 1 in flight per `user_id` as a backstop.
 
@@ -692,11 +701,26 @@ enforces 1 in flight per `user_id` as a backstop.
 | `HINT_FALLBACK_MODELS` | api | `deepseek/deepseek-v4.1-flash-1017,anthropic/claude-haiku-5.5` |
 | `HINT_DAILY_USD_STOP` | api | 2 |
 | `SUBMISSIONS_PER_MIN` | api | 6 |
+| `COMPILE_TIMEOUT_S`, `TEST_TIMEOUT_S`, `TEST_CPU_S`, `SUBMISSION_TIMEOUT_S`, `GRADER_CONCURRENCY`, `GRADER_QUEUE_MAX`, `GRADER_IMAGE`, `JOBS_DIR` | dispatcher | §6.5 |
+
+Only `web` loads `.env` (`env_file`, optional). `grader-dispatcher` holds `docker.sock`, so it has
+no `env_file`: compose passes it only its own vars through `environment:`, the tunables with
+`${VAR:-default}` interpolation (which reads `.env` at `docker compose` time) and the
+in-container paths `CONTENT_DIR=/content` and `JOBS_DIR=/srv/grader/jobs` hard-coded so they
+always match its mounts. `OPENROUTER_API_KEY` and `SESSION_SECRET` never reach it. A new
+dispatcher var must be added to that list in `docker-compose.yml`.
 
 ## 10. Deployment notes
 
 - `docker compose --profile build build && docker compose up -d`.
 - `web` publishes `127.0.0.1:8042` only; the dispatcher publishes nothing.
+- Secrets stay out of the `docker.sock` holder: `web` gets `.env` via
+  `env_file: [ { path: .env, required: false } ]`; `grader-dispatcher` gets only its own vars by
+  interpolation (§9). Check with `docker compose config`: no `OPENROUTER_API_KEY` or
+  `SESSION_SECRET` under `grader-dispatcher`.
+- SQLite lives in `./data`, bind-mounted at `/data`; the container runs as `node` (uid 1000), so
+  the host directory must be owned by 1000:1000 (`mkdir -p data && sudo chown 1000:1000 data`).
+  If it is not, `web` exits with a message naming the directory and the `chown` command.
 - Host prerequisites (README): `cgroup_enable=memory` in `/boot/firmware/cmdline.txt` + reboot;
   `apt full-upgrade` + reboot for GhostLock; Tailscale ACL so the Pi cannot initiate connections
   to other tailnet devices; `sudo tailscale serve --bg 8042`; `/srv/grader/jobs` created on the

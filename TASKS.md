@@ -36,7 +36,8 @@ that matches `@ceg/contract`, the DB schema is applied on startup, and `npm run 
 throwaway container, and never leaks expected output or references into the sandbox.
 
 **Scope**
-1. `grader/image/runner.sh` (+ helper if needed): copy `/in` → `/work`; compile A
+1. `grader/image/runner.sh` (+ helper if needed): copy `/in` → `/work` (the `/work` tmpfs is
+   mounted `uid=65534,gid=65534` per §6.3; a failed copy must fail the job, never be ignored); compile A
    (`cc -Wall -Wextra -Werror -std=gnu17 -c`, 10 s, stderr capped 16 KiB); compile B with
    `-fno-builtin` + `nm -u` on the student object only, leading `_` stripped, checked against
    `allow.txt`; link (program alone, or + harness `main.c`); per test `setsid timeout -s KILL`,
@@ -44,7 +45,8 @@ throwaway container, and never leaks expected output or references into the sand
    `head -c max+1`, process-group kill; print one `RunnerOutput` JSON line.
 2. Dispatcher pipeline in `grader/dispatcher/src/`: content loader (`CONTENT_DIR`, SIGHUP
    reload); `file` and `static` stages; job dir under `JOBS_DIR/<job_id>/in` with no expected
-   output; the exact `docker run` flags in §6.3; 30 s outer `docker kill` and `docker rm -f` +
+   output; the exact `docker run` flags in §6.3 (including `uid=65534,gid=65534` on the `/work`
+   tmpfs); outer `docker kill` at the §6.5 deadline and `docker rm -f` +
    job dir removal in `finally`; byte-exact compare; KO reasons; `first_failure`; `cat -e`
    rendering per §6.4; `GradeJobResponse`.
 3. Concurrency: semaphore `GRADER_CONCURRENCY`, FIFO queue `GRADER_QUEUE_MAX` then 503
@@ -75,6 +77,8 @@ throwaway container, and never leaks expected output or references into the sand
 - [ ] Printing 1 MiB → KO `truncated`.
 - [ ] `#include "/srv/grader/jobs/…"` or `#include "/content/refs/gym_echo_first.c"` →
       compile error; no expected output or reference text appears in `compile_stderr`.
+- [ ] Inside the sandbox, as uid 65534, `cp /in/<file> /work/` and compile+link+run succeed
+      under the full §6.3 flag set.
 - [ ] Inside the sandbox `id -u` is 65534, `/in` is read-only, there is no network
       (`connect()` fails), and `cat /proc/self/status` shows `NoNewPrivs: 1`.
 - [ ] 3 concurrent jobs from 3 users with `GRADER_CONCURRENCY=2` → at most 2 `grade-*`
@@ -127,7 +131,7 @@ throwaway container, and never leaks expected output or references into the sand
       names the exercise and the stage.
 - [ ] `regen-diff.log` exists; every diff in it is explained or fixed.
 - [ ] No 42 text in git: `git ls-files content/` prints only `content/README.md`, and
-      `git grep -l "Assignment name"` finds nothing.
+      `git grep -l "Assignment name" -- ':!*.md'` finds nothing.
 - [ ] Running import twice is idempotent (no diff in `content/`).
 
 ---

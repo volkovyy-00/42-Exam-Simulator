@@ -9,7 +9,7 @@ services:
   web:
     build: { context: ., dockerfile: api/Dockerfile }
     restart: unless-stopped
-    env_file: { path: .env, required: false }
+    env_file: [ { path: .env, required: false } ]
     environment:
       DATA_DIR: /data
       CONTENT_DIR: /content
@@ -32,11 +32,18 @@ services:
   grader-dispatcher:
     build: { context: ., dockerfile: grader/dispatcher/Dockerfile }
     restart: unless-stopped
-    env_file: { path: .env, required: false }
+    # No env_file: this service holds docker.sock, so it gets only its own vars (DESIGN.md §9).
+    # Values come from .env via interpolation; OPENROUTER_API_KEY / SESSION_SECRET never reach it.
     environment:
-      CONTENT_DIR: /content
-      JOBS_DIR: /srv/grader/jobs
-      GRADER_IMAGE: grader:pinned
+      COMPILE_TIMEOUT_S: ${COMPILE_TIMEOUT_S:-10}
+      TEST_TIMEOUT_S: ${TEST_TIMEOUT_S:-2}
+      TEST_CPU_S: ${TEST_CPU_S:-1}
+      SUBMISSION_TIMEOUT_S: ${SUBMISSION_TIMEOUT_S:-30}
+      GRADER_CONCURRENCY: ${GRADER_CONCURRENCY:-2}
+      GRADER_QUEUE_MAX: ${GRADER_QUEUE_MAX:-20}
+      GRADER_IMAGE: ${GRADER_IMAGE:-grader:pinned}
+      JOBS_DIR: /srv/grader/jobs      # fixed: must match the mount below
+      CONTENT_DIR: /content           # fixed: must match the mount below
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./content:/content:ro

@@ -1,7 +1,7 @@
 # Service "web": Fastify API + built SPA. Build context: repo root.
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json tsconfig.base.json ./
 COPY contract/package.json contract/
 COPY api/package.json api/
 COPY web/package.json web/
@@ -26,6 +26,7 @@ COPY --from=deps /app/package.json ./
 COPY contract contract
 COPY api api
 COPY --from=build /app/web/dist web/dist
+RUN mkdir -p /data && chown node:node /data
 USER node
 EXPOSE 8042
 CMD ["node", "api/src/server.ts"]
