@@ -1,0 +1,20 @@
+{
+  "name": "scripts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "WP2 content pipeline: import, regenerate, validate, fingerprint (DESIGN.md §5).",
+  "scripts": {
+    "import": "node import_trainer.ts",
+    "regen": "node regen_expected.ts",
+    "check": "node validate.ts",
+    "fingerprint": "node fingerprint.ts",
+    "typecheck": "tsc -p .",
+    "test": "node --test test/*.test.ts",
+    "test:docker": "CEG_DOCKER_TESTS=1 node --test test/*.docker.ts"
+  },
+  "dependencies": {
+    "@ceg/contract": "*",
+    "ajv": "^8.20.0"
+  }
+}
