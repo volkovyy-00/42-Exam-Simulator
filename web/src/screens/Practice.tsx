@@ -18,6 +18,7 @@ import { Subject } from '../components/Subject.tsx';
 import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
 import { useAutocompleteSetting, useDraft } from '../lib/hooks.ts';
 import { draftKey } from '../lib/storage.ts';
+import { tapHandlers } from '../lib/tap.ts';
 
 function when(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
@@ -204,9 +205,7 @@ export function Practice({ user, exerciseId }: { user: User; exerciseId: string 
           type="button"
           className="grade primary"
           disabled={grading}
-          onPointerDown={(e) => e.preventDefault()}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => void grade()}
+          {...tapHandlers(() => void grade())}
         >
           {grading ? 'Grading…' : 'Grade'}
         </button>

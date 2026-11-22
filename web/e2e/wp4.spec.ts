@@ -1,10 +1,14 @@
 // WP4 acceptance tests (TASKS.md "WP4: Web app"), run on the iPhone 15 and Pixel 8 profiles
-// against `vite preview` + the API stubs. Grader errors (429, slow responses, hint state) that
-// the stubs never produce are injected with page.route.
+// against `vite preview` + the real API (fixtures/ content, fake dispatcher; see
+// playwright.config.ts). Every test starts logged in (e2e/fixtures.ts). Responses the fake
+// dispatcher or a fresh account never produce (429 cooldown, slow responses, hint state, a
+// nm/compile result, a given exercise list) are injected with page.route.
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, test, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { E2E, LOGIN_DEMO } from './env.ts';
+import { expect, newInvite, test } from './fixtures.ts';
 
 const DISCLAIMER = 'Not affiliated with, endorsed by, or reflective of the official exams of 42';
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -37,7 +41,7 @@ const activeInEditor = (page: Page) =>
   page.evaluate(() => !!document.activeElement?.closest('.cm-content'));
 
 test.describe('key bar', () => {
-  test('renders on a coarse pointer and is hidden on a fine pointer', async ({ page, browser, baseURL }) => {
+  test('renders on a coarse pointer and is hidden on a fine pointer', async ({ page, browser, baseURL, storageState }) => {
     await openPractice(page);
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
     const bar = page.locator('.keybar');
@@ -56,6 +60,7 @@ test.describe('key bar', () => {
 
     const desktop = await browser.newContext({
       baseURL, viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1,
+      storageState,
     });
     const dp = await desktop.newPage();
     await openPractice(dp);
@@ -88,6 +93,21 @@ test.describe('key bar', () => {
     for (const k of [';', '"']) await page.locator(`[data-key='${k}']`).tap();
     expect(await editorText(page)).toBe('(x)\n\ty;""');
     expect(await activeInEditor(page)).toBe(true);
+  });
+
+  test('one tap on ( inserts exactly one ( (no ghost click, on every engine)', async ({ page }) => {
+    await openPractice(page);
+    await focusEditor(page);
+    const paren = page.locator('[data-key="("]');
+    await paren.tap();
+    // Wait past the 500 ms window in which a click following the tap is ignored (lib/tap.ts).
+    await page.waitForTimeout(700);
+    expect(await editorText(page)).toBe('()');
+    expect(await activeInEditor(page)).toBe(true);
+    // A second tap after the window counts again: exactly one more pair.
+    await paren.tap();
+    await page.waitForTimeout(700);
+    expect(await editorText(page)).toBe('(())');
   });
 
   test('Tab with a selection indents the selected lines', async ({ page }) => {
@@ -165,13 +185,22 @@ test.describe('practice', () => {
     await expect(result.locator('.compile')).toContainText("error: expected ';'");
   });
 
-  test('history lists attempts and the solution is revealed after an attempt', async ({ page }) => {
-    await openPractice(page);
-    await expect(page.locator('.history li')).toHaveCount(1);
-    await page.getByRole('button', { name: 'Show the solution' }).tap();
-    await expect(page.getByRole('alertdialog')).toContainText('solved without hints');
-    await page.getByRole('button', { name: 'Show it' }).tap();
-    await expect(page.getByTestId('solution')).toContainText('reference');
+  test.describe(() => {
+    // A new user with exactly one graded attempt.
+    test.use({ account: 'fresh' });
+    test('history lists attempts and the solution is revealed after an attempt', async ({ page }) => {
+      const first = await page.request.post('/api/practice/gym_echo_first/submissions', {
+        data: { filename: 'gym_echo_first.c', source: '' },
+      });
+      expect(first.status(), await first.text()).toBe(200);
+      await openPractice(page);
+      await expect(page.locator('.history li')).toHaveCount(1);
+      await page.getByRole('button', { name: 'Show the solution' }).tap();
+      await expect(page.getByRole('alertdialog')).toContainText('solved without hints');
+      await page.getByRole('button', { name: 'Show it' }).tap();
+      // The real reference from fixtures/refs/gym_echo_first.c (the stubs sent "/* reference */").
+      await expect(page.getByTestId('solution')).toContainText('write(1, "\\n", 1);');
+    });
   });
 
   test('solution is locked before the first attempt', async ({ page }) => {
@@ -181,18 +210,22 @@ test.describe('practice', () => {
     await expect(page.getByRole('button', { name: 'Show the solution' })).toBeDisabled();
   });
 
-  test('draft autosaves per user and exercise', async ({ page }) => {
-    await openPractice(page);
-    await focusEditor(page);
-    await page.keyboard.type('int x;');
-    await page.waitForTimeout(600);
-    await page.reload();
-    await expect(page.locator('.cm-content')).toBeVisible();
-    expect(await editorText(page)).toBe('int x;');
-    expect(await page.evaluate(() => localStorage.getItem('ceg:draft:1:gym_echo_first'))).toBe('int x;');
-    // Another exercise starts empty.
-    await openPractice(page, 'gym_strlen');
-    expect(await editorText(page)).toBe('');
+  test.describe(() => {
+    // The seeded `e2e` user is id 1, which the draft key below names.
+    test.use({ account: 'seed' });
+    test('draft autosaves per user and exercise', async ({ page }) => {
+      await openPractice(page);
+      await focusEditor(page);
+      await page.keyboard.type('int x;');
+      await page.waitForTimeout(600);
+      await page.reload();
+      await expect(page.locator('.cm-content')).toBeVisible();
+      expect(await editorText(page)).toBe('int x;');
+      expect(await page.evaluate(() => localStorage.getItem('ceg:draft:1:gym_echo_first'))).toBe('int x;');
+      // Another exercise starts empty.
+      await openPractice(page, 'gym_strlen');
+      expect(await editorText(page)).toBe('');
+    });
   });
 
   test('autocomplete offers exercise words and C keywords, and can be turned off', async ({ page }) => {
@@ -252,7 +285,7 @@ test.describe('practice', () => {
 });
 
 test.describe('exam', () => {
-  test('grademe asks for confirmation, 429 cooldown shows a countdown, no hints or solution', async ({ page }) => {
+  test('grademe asks for confirmation, 429 cooldown shows a countdown, no hints or solution', async ({ page, exam: _exam }) => {
     let calls = 0;
     const next = new Date(Date.now() + 90_000).toISOString();
     await page.route('**/api/exams/*/grademe', async (route) => {
@@ -304,7 +337,7 @@ test.describe('exam', () => {
 });
 
 test.describe('layout and inputs', () => {
-  test('every input and the editor compute font-size >= 16px; viewport meta has no maximum-scale', async ({ page }) => {
+  test('every input and the editor compute font-size >= 16px; viewport meta has no maximum-scale', async ({ page, exam: _exam }) => {
     const meta = await page.goto('/').then(() =>
       page.locator('meta[name="viewport"]').getAttribute('content'));
     expect(meta).toContain('viewport-fit=cover');
@@ -394,22 +427,24 @@ test.describe('layout and inputs', () => {
     await expect(page.getByText('✓ solved')).toBeVisible();
   });
 
-  test('login and register reach the exercise list', async ({ page }) => {
+  test('login and register reach the exercise list', async ({ page }, testInfo) => {
+    const invite = newInvite();
+    const friend = `friend-${testInfo.workerIndex}-${testInfo.retry}`;
     await page.route('**/api/me', (r) => r.fulfill({ status: 401, json: { error: 'unauthorized', message: 'x' } }));
     await page.goto('/');
-    await page.getByLabel('Username').fill('zhenia');
-    await page.getByLabel('Password').fill('long enough pass');
+    await page.getByLabel('Username').fill(LOGIN_DEMO.username);
+    await page.getByLabel('Password').fill(LOGIN_DEMO.password);
     await page.getByRole('button', { name: 'Log in' }).tap();
     await expect(page.getByTestId('progress')).toBeVisible();
 
     await page.getByRole('button', { name: 'Log out' }).tap();
     await page.getByRole('tab', { name: 'Register' }).tap();
-    await page.getByLabel('Invite code').fill('k3q9-x2m7');
-    await page.getByLabel('Username').fill('friend');
+    await page.getByLabel('Invite code').fill(invite);
+    await page.getByLabel('Username').fill(friend);
     await page.getByLabel('Password').fill('short');
     await page.getByRole('button', { name: 'Create account' }).tap();
     await expect(page.getByRole('alert')).toContainText('at least 10');
-    await page.getByLabel('Password').fill('long enough pass');
+    await page.getByLabel('Password').fill(E2E.password);
     await page.getByRole('button', { name: 'Create account' }).tap();
     await expect(page.getByTestId('progress')).toBeVisible();
   });

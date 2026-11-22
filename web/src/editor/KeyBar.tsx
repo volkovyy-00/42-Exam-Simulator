@@ -2,6 +2,7 @@ import type { RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
 import { indentMore } from '@codemirror/commands';
 import { closeCompletion, insertBracket } from '@codemirror/autocomplete';
+import { tapHandlers } from '../lib/tap.ts';
 
 export const KEYS: readonly string[] = [
   'Tab', '{', '}', '(', ')', ';', '*', '&', '"', "'", '[', ']', '<', '>', '=', '!', '\\',
@@ -24,9 +25,6 @@ export function pressKey(view: EditorView, key: string): void {
   if (!view.hasFocus) view.focus();
 }
 
-// Keep focus (and the soft keyboard) in the editor: the button must never take focus.
-const keepFocus = (e: { preventDefault(): void }) => e.preventDefault();
-
 export function KeyBar({ viewRef }: { viewRef: RefObject<EditorView | null> }) {
   return (
     <div className="keybar" role="toolbar" aria-label="C symbols">
@@ -38,12 +36,11 @@ export function KeyBar({ viewRef }: { viewRef: RefObject<EditorView | null> }) {
           className={k === 'Tab' ? 'key key-wide' : 'key'}
           aria-label={k === 'Tab' ? 'Tab' : `Insert ${k}`}
           data-key={k}
-          onPointerDown={keepFocus}
-          onMouseDown={keepFocus}
-          onClick={() => {
+          // Keeps focus (and the soft keyboard) in the editor; see lib/tap.ts.
+          {...tapHandlers(() => {
             const view = viewRef.current;
             if (view) pressKey(view, k);
-          }}
+          })}
         >
           {k === 'Tab' ? '⇥' : k}
         </button>

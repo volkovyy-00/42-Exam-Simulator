@@ -10,6 +10,7 @@ import { ResultView } from '../components/Result.tsx';
 import { Subject } from '../components/Subject.tsx';
 import { formatDuration, useAutocompleteSetting, useDraft, useNow } from '../lib/hooks.ts';
 import { draftKey } from '../lib/storage.ts';
+import { tapHandlers } from '../lib/tap.ts';
 
 type Phase = 'loading' | 'picker' | 'exam';
 
@@ -299,9 +300,7 @@ function ActiveExam({ user, status, skew, onStatus }: ActiveProps) {
           type="button"
           className="grade primary"
           disabled={grading || coolingDown || !question}
-          onPointerDown={(e) => e.preventDefault()}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setConfirm('grade')}
+          {...tapHandlers(() => setConfirm('grade'))}
         >
           {grading ? 'Grading…' : coolingDown ? formatDuration(cooldownLeft) : 'grademe'}
         </button>
