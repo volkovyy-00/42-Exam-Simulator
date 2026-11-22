@@ -1,7 +1,7 @@
 # C Exam Gym: design
 
 A private, self-hosted web app for practising the 42 Piscine C exam from a phone or laptop.
-It runs on a Raspberry Pi 5 (arm64), is reachable only over Tailscale, and serves 20 to 40
+It runs on a Raspberry Pi 4 (arm64, 1.8 GiB RAM), is reachable only over Tailscale, and serves 20 to 40
 invite-only users. Everything in this document is the contract that the four work packages in
 [TASKS.md](TASKS.md) build against. If code and this document disagree, fix one of them in the
 same commit.
@@ -11,20 +11,20 @@ Source material: `42-exam-trainer-brief.md` and `intent.md` (2026-11-21). Sectio
 
 ## 0. Decisions taken (defaults from the brief)
 
-The open questions in `intent.md` were resolved with the brief's recommended defaults, confirmed by the project owner on 2026-11-21. Pi RAM (row 8) is still to be measured.
+The open questions in `intent.md` were resolved with the brief's recommended defaults, confirmed by the project owner on 2026-11-21. Pi RAM (row 8) has since been measured on the real Pi 4.
 
 | # | Question | Decision |
 |---|---|---|
 | 1 | Exam profile | **Piscine** (`piscine_exam`, levels 0–5, 240 min) plus `piscine_final` (480 min). `rank02` exists in config but `enabled: false`. |
 | 2 | Piscine scoring | **Seed model**: 16 questions (L0×2, L1–L4×3, L5×2), 6 points each, the last worth 10 (max 100), pass at 30. Pass mark, points and fail policy are config. Labelled "approximation" in the UI. |
 | 3 | Scope before Friday 27 Nov | **Grading + editor first, hints behind `HINTS_ENABLED`** (default `false`). If LLM hints are not stable by day 3, ship the deterministic diff-only hint. Practise on the seed's `./exam` CLI meanwhile. |
-| 4 | Access | **Tailscale only.** `web` binds `127.0.0.1:8042`; `sudo tailscale serve --bg 8042`. No LAN/Caddy, no root certificates on phones. `Tailscale-User-*` headers are ignored. |
-| 5 | Host changes | Required before launch, documented in README: `cgroup_enable=memory`, full upgrade + reboot for GhostLock (CVE-2026-43499), Tailscale ACL. Nothing in this repo changes the host. |
+| 4 | Access | **Tailscale only.** `web` binds `127.0.0.1:8042`; `sudo tailscale serve --bg --https=8443 http://127.0.0.1:8042` (its own port: 443 is taken by another service on the Pi). No LAN/Caddy, no root certificates on phones. `Tailscale-User-*` headers are ignored. |
+| 5 | Host changes | Required before launch, documented in DEPLOY.md: `cgroup_enable=memory`, full upgrade + reboot for GhostLock (CVE-2026-43499), Tailscale ACL. Nothing in this repo changes the host. |
 | 6 | Timeouts / cooldown | **2 s wall + 1 s CPU per test**, 10 s compile, 30 s whole submission. Cooldown after a FAIL in exam mode: `[0.5, 2.5, 3, 5.5, 8.5, 14, 22.5]` minutes, repeating the last, grows with each FAIL in the same slot (a failed grademe draws a new exercise but keeps the count) and resets when the slot is passed, labelled "approximation". **No cooldown in practice mode** (the per-user rate limit still applies). |
 | 7 | Hint model | **`deepseek/deepseek-v4-flash-0731`**, `reasoning: {"enabled": false}`, fallbacks `deepseek/deepseek-v4.1-flash-1017`, `anthropic/claude-haiku-5.5`; provider ignore list `["Inceptron"]`. Limits: 25 uncached calls/user/day, 3/exercise/user/day, $2/day app-wide stop, $10 OpenRouter key cap. |
-| 8 | Pi RAM | Unknown. Budget assumes 2 graders × 256 MiB + web 512 MiB + dispatcher 192 MiB. Check `free -h` before launch. |
+| 8 | Pi RAM | **Pi 4, 1.8 GiB**; measured peak 843 MiB during tests. Worst case for the app is **832 MiB**: `GRADER_CONCURRENCY=1` × 256 MiB sandbox + web 320 MiB + dispatcher 256 MiB. Check `free -h` before launch. |
 | – | Content licensing | `content/` is git-ignored. 42-derived subject texts are © 42 / École 42. Only original fixtures (`fixtures/`) are committed. Footer disclaimer on every page. |
-| – | Sandbox | Hardened `docker run --rm` (runc) per submission. gVisor is out (16K pages, VA_BITS_39 on a stock Pi 5). |
+| – | Sandbox | Hardened `docker run --rm` (runc) per submission. gVisor is out: on the Pi 4 (4K-page kernel) the 16K-page blocker is gone, but the stock kernel's 39-bit VA (VA_BITS_39) still rules it out. |
 | – | Repo layout | `api/` is the brief's `web` service (Fastify; also serves the built SPA). `web/` is the SPA. `grader/` holds the dispatcher and the sandbox image. |
 | – | TypeScript | Node 22 (≥ 22.18) runs `.ts` directly via type stripping, so the backend has no build step. Only erasable TS syntax (no `enum`, no `namespace`, no parameter properties). `tsc --noEmit` is the type check. |
 
@@ -657,7 +657,7 @@ could forge this JSON. That only cheats the student.)
 | `TEST_TIMEOUT_S` | 2 (overridden by `limits.timeout_ms` when larger, never above 10) |
 | `TEST_CPU_S` | 1 |
 | `SUBMISSION_TIMEOUT_S` | 30 |
-| `GRADER_CONCURRENCY` | 2 |
+| `GRADER_CONCURRENCY` | 2 (`docker-compose.yml` sets 1 for the Pi 4, §0 row 8) |
 | `GRADER_QUEUE_MAX` | 20 |
 | `GRADER_IMAGE` | `grader:pinned` |
 | `JOBS_DIR` | `/srv/grader/jobs` |
@@ -734,10 +734,10 @@ dispatcher var must be added to that list in `docker-compose.yml`.
 - SQLite lives in `./data`, bind-mounted at `/data`; the container runs as `node` (uid 1000), so
   the host directory must be owned by 1000:1000 (`mkdir -p data && sudo chown 1000:1000 data`).
   If it is not, `web` exits with a message naming the directory and the `chown` command.
-- Host prerequisites (README): `cgroup_enable=memory` in `/boot/firmware/cmdline.txt` + reboot;
+- Host prerequisites (DEPLOY.md): `cgroup_enable=memory` in `/boot/firmware/cmdline.txt` + reboot;
   `apt full-upgrade` + reboot for GhostLock; Tailscale ACL so the Pi cannot initiate connections
-  to other tailnet devices; `sudo tailscale serve --bg 8042`; `/srv/grader/jobs` created on the
-  host; do not switch to `kernel8.img`.
+  to other tailnet devices; `sudo tailscale serve --bg --https=8443 http://127.0.0.1:8042`; `/srv/grader/jobs`
+  created on the host; stay on the default Pi 4 kernel (`kernel8.img`).
 - The dispatcher refuses to start if `docker info` reports no memory-limit support.
 - Footer on every page: "Independent practice tool. Not affiliated with, endorsed by, or
   reflective of the official exams of 42 / École 42."

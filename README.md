@@ -32,15 +32,15 @@ npm run dev:web                    # :5173, proxies /api to :8042
 
 ## Deploy on the Pi
 
-Host prerequisites, once:
+The full checklist is [DEPLOY.md](DEPLOY.md). Host prerequisites, once:
 
 1. Append `cgroup_enable=memory` to `/boot/firmware/cmdline.txt`, reboot, and check that
    `docker info` prints no memory-limit warning. Without it `--memory` is silently ignored.
 2. `sudo apt full-upgrade` and reboot; confirm the kernel has the GhostLock (CVE-2026-43499) fix.
 3. `sudo mkdir -p /srv/grader/jobs`.
-4. Tailscale ACL: the Pi accepts 443 from the group, and cannot initiate connections to other
+4. Tailscale ACL: the Pi (`tag:pi`) accepts 8443 from the group, and cannot initiate connections to other
    tailnet devices.
-5. Do not switch to `kernel8.img`. gVisor is out of scope (16K pages).
+5. Stay on the default Pi 4 kernel (`kernel8.img`). gVisor is out of scope (39-bit VA).
 6. Optional: `hyperfine --warmup 3 'docker run --rm --network none alpine true'` to measure
    container start time.
 
@@ -51,7 +51,7 @@ cp .env.example .env               # set SESSION_SECRET
 docker compose --profile build build
 mkdir -p data && sudo chown 1000:1000 data   # SQLite; web runs as uid 1000
 docker compose up -d
-sudo tailscale serve --bg 8042     # https://<pi>.<tailnet>.ts.net
+sudo tailscale serve --bg --https=8443 http://127.0.0.1:8042   # https://<pi>.<tailnet>.ts.net:8443
 ```
 
 ## Licence
@@ -71,7 +71,5 @@ docker run --rm grader:pinned cc --version
 cc (Debian 14.2.0-19) 14.2.0
 ```
 
-That line comes from Debian trixie's `gcc-14` package (14.2.0-19), read from
-`buildpack-deps:trixie`. `grader:pinned` itself was not built when this was written: the build
-environment could not reach the Debian mirrors. After `docker compose --profile build build` on
-the Pi, run the command above and replace the line if it differs.
+Confirmed by running the command above on the Pi 4 after `docker compose --profile build build`
+(Debian trixie's `gcc-14` package, 14.2.0-19). If a rebuild prints a different line, update it here.
