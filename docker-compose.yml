@@ -1,8 +1,9 @@
-# C Exam Gym on the Pi 5. DESIGN.md §2 and §10.
+# C Exam Gym on the Pi 4 (1.8 GiB RAM). DESIGN.md §0, §2 and §10; steps in DEPLOY.md.
 #   docker compose --profile build build   # also builds the grader:pinned sandbox image
 #   docker compose up -d
-# Host prerequisites (README): cgroup_enable=memory, patched kernel, /srv/grader/jobs exists,
-# `sudo tailscale serve --bg 8042`.
+# Host prerequisites (DEPLOY.md): cgroup_enable=memory, patched kernel, /srv/grader/jobs exists,
+# `sudo tailscale serve --bg --https=8443 http://127.0.0.1:8042`.
+# Memory worst case (DESIGN.md §0 row 8): 1 sandbox × 256m + web 320m + dispatcher 256m = 832 MiB.
 name: c-exam-gym
 
 services:
@@ -20,7 +21,7 @@ services:
       - ./data:/data
       - ./content:/content:ro
     networks: [internal, egress]      # egress: OpenRouter for hints
-    mem_limit: 512m
+    mem_limit: 320m
     depends_on: [grader-dispatcher]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8042/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -39,7 +40,7 @@ services:
       TEST_TIMEOUT_S: ${TEST_TIMEOUT_S:-2}
       TEST_CPU_S: ${TEST_CPU_S:-1}
       SUBMISSION_TIMEOUT_S: ${SUBMISSION_TIMEOUT_S:-30}
-      GRADER_CONCURRENCY: ${GRADER_CONCURRENCY:-2}
+      GRADER_CONCURRENCY: ${GRADER_CONCURRENCY:-1}   # Pi 4: one 256m sandbox at a time
       GRADER_QUEUE_MAX: ${GRADER_QUEUE_MAX:-20}
       GRADER_IMAGE: ${GRADER_IMAGE:-grader:pinned}
       JOBS_DIR: /srv/grader/jobs      # fixed: must match the mount below
@@ -49,7 +50,7 @@ services:
       - ./content:/content:ro
       - /srv/grader/jobs:/srv/grader/jobs   # same path as on the host: the daemon resolves bind paths there
     networks: [internal]              # no published ports, no internet
-    mem_limit: 192m
+    mem_limit: 256m                   # 192m sat at the cap from page cache on the Pi 4
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

@@ -1,7 +1,8 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { createInvite } from '../src/auth.ts';
+import argon2 from 'argon2';
+import { ARGON2_MAX_CONCURRENT, createInvite, verifyPassword } from '../src/auth.ts';
 import { type FakeDispatcher, type TestApp, as, cookieOf, json, login, startApp, startFakeDispatcher } from './helpers.ts';
 
 let fake: FakeDispatcher;
@@ -152,5 +153,55 @@ describe('auth', () => {
     const charset = await app.inject({ method: 'POST', url: '/api/exams',
       headers: { cookie, 'content-type': 'application/json; charset=utf-8' }, payload: JSON.stringify({ profile_id: 'rank02' }) });
     assert.equal(charset.statusCode, 400); // parsed as JSON; rank02 is disabled
+  });
+  it('new hashes use OWASP argon2id params; hashes with the old defaults still verify', async () => {
+    const { app } = t;
+    await login(app, 'kate', 'kate-password');
+    const u = app.db.prepare("SELECT password_hash FROM users WHERE username = 'kate'").get() as { password_hash: string };
+    assert.match(u.password_hash, /^\$argon2id\$v=19\$m=19456,t=2,p=1\$/);
+    const old = await argon2.hash('legacy-password', { type: argon2.argon2id }); // library defaults
+    assert.match(old, /\$m=65536,t=3,p=4\$/);
+    assert.equal(await verifyPassword(old, 'legacy-password'), true);
+    assert.equal(await verifyPassword(old, 'wrong-password'), false);
+  });
+
+  it('8 concurrent logins all answer correctly, with at most 2 argon2 calls at once', async () => {
+    const { app } = t;
+    const users = ['lara', 'mike', 'nina', 'oleg', 'pete', 'quinn'];
+    for (const u of users) await login(app, u, `${u}-password`);
+    const realHash = argon2.hash;
+    const realVerify = argon2.verify;
+    let active = 0;
+    let peak = 0;
+    let calls = 0;
+    const track = <A extends unknown[], R>(fn: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
+      active++;
+      calls++;
+      peak = Math.max(peak, active);
+      try {
+        return await fn(...a);
+      } finally {
+        active--;
+      }
+    };
+    argon2.hash = track(realHash) as typeof argon2.hash;
+    argon2.verify = track(realVerify) as typeof argon2.verify;
+    try {
+      const attempts = [
+        ...users.map((u) => ({ username: u, password: `${u}-password`, want: 200 })),
+        { username: 'lara', password: 'wrong-password', want: 401 },
+        { username: 'nobody_here', password: 'whatever-pw', want: 401 }, // dummy hash path
+      ];
+      const res = await Promise.all(attempts.map((a) =>
+        app.inject({ method: 'POST', url: '/api/auth/login', ...json({ username: a.username, password: a.password }) })));
+      assert.deepEqual(res.map((r) => r.statusCode), attempts.map((a) => a.want));
+      for (const r of res.filter((x) => x.statusCode === 200)) assert.match(String(r.headers['set-cookie']), /^ceg_session=/);
+    } finally {
+      argon2.hash = realHash;
+      argon2.verify = realVerify;
+    }
+    assert.ok(calls >= 8, `only ${calls} argon2 calls`);
+    assert.ok(peak <= ARGON2_MAX_CONCURRENT, `peak ${peak} concurrent argon2 calls`);
+    assert.equal(peak, ARGON2_MAX_CONCURRENT, 'the semaphore should still allow 2 at once');
   });
 });
