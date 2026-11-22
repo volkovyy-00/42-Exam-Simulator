@@ -124,6 +124,32 @@ test.describe('key bar', () => {
   });
 });
 
+test.describe('keyboard Tab', () => {
+  test('Tab inserts \\t at the cursor, not at the line start', async ({ page }) => {
+    await openPractice(page);
+    await focusEditor(page);
+    await page.keyboard.type('ab');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Tab');
+    expect(await editorText(page)).toBe('a\tb');
+    await expect.poll(() => activeInEditor(page)).toBe(true);
+  });
+
+  test('Tab with a selection indents the selected lines; Shift+Tab dedents them', async ({ page }) => {
+    await openPractice(page);
+    await focusEditor(page);
+    await page.keyboard.type('x;');
+    await enter(page);
+    await page.keyboard.type('y;');
+    // Same select-all trick as the key-bar selection test above.
+    await page.keyboard.press(test.info().project.use.browserName === 'webkit' ? 'Meta+a' : 'ControlOrMeta+a');
+    await page.keyboard.press('Tab');
+    expect(await editorText(page)).toBe('\tx;\n\ty;');
+    await page.keyboard.press('Shift+Tab');
+    expect(await editorText(page)).toBe('x;\ny;');
+  });
+});
+
 test.describe('practice', () => {
   test('Grade stays visible with the editor focused and is disabled while grading', async ({ page }) => {
     let release!: () => void;

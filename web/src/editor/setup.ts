@@ -10,7 +10,7 @@ import {
   keymap,
   lineNumbers,
 } from '@codemirror/view';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentLess, insertTab } from '@codemirror/commands';
 import {
   bracketMatching,
   defaultHighlightStyle,
@@ -108,6 +108,12 @@ export const wordsExt = (words: readonly string[]): Extension => exerciseWords.o
 export const scrollMarginExt = (barHeight: number): Extension =>
   EditorView.cursorScrollMargin.of({ x: 8, y: Math.round(barHeight) + 8 });
 
+/**
+ * Tab inserts \t at the cursor (indents the selected lines when there is a selection);
+ * Shift-Tab dedents. Not indentWithTab, which indents the whole line wherever the cursor is.
+ */
+const TAB_KEY = { key: 'Tab', run: insertTab, shift: indentLess };
+
 export interface BuildOptions {
   words: readonly string[];
   autocomplete: boolean;
@@ -131,7 +137,7 @@ export function buildExtensions(o: BuildOptions): Extension[] {
     cpp(),
     indentUnit.of('\t'),
     EditorState.tabSize.of(4),
-    keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+    keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, TAB_KEY]),
     EditorView.contentAttributes.of({
       autocorrect: 'off',
       autocapitalize: 'off',

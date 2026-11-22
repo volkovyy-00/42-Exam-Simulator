@@ -1,6 +1,6 @@
 import type { RefObject } from 'react';
 import type { EditorView } from '@codemirror/view';
-import { indentMore } from '@codemirror/commands';
+import { insertTab } from '@codemirror/commands';
 import { closeCompletion, insertBracket } from '@codemirror/autocomplete';
 import { tapHandlers } from '../lib/tap.ts';
 
@@ -16,8 +16,8 @@ export function pressKey(view: EditorView, key: string): void {
   closeCompletion(view);
   const { state } = view;
   if (key === 'Tab') {
-    if (state.selection.ranges.some((r) => !r.empty)) indentMore(view);
-    else view.dispatch(state.update(state.replaceSelection('\t'), { scrollIntoView: true, userEvent: 'input.type' }));
+    // Same command as the keyboard Tab binding in setup.ts.
+    insertTab(view);
   } else {
     const tr = BRACKET_KEYS.has(key) ? insertBracket(state, key) : null;
     view.dispatch(tr ?? state.update(state.replaceSelection(key), { scrollIntoView: true, userEvent: 'input.type' }));
