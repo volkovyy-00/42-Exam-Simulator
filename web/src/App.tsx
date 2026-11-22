@@ -1,96 +1,90 @@
-// Placeholder shell. WP4 replaces this with the real screens: login/register, exercise list,
-// practice editor (CodeMirror 6 + key bar), exam mode, results with cat -e diff, hints panel.
 import { useEffect, useState } from 'react';
-import type { ExerciseDetail, ExerciseSummary, GradeResult, HealthResponse } from '@ceg/contract';
-import { api, ApiFailure } from './api.ts';
+import type { HealthResponse, User } from '@ceg/contract';
+import { api, ApiFailure, errorText } from './api.ts';
+import { Login } from './screens/Login.tsx';
+import { ExerciseList } from './screens/ExerciseList.tsx';
+import { Practice } from './screens/Practice.tsx';
+import { Exam } from './screens/Exam.tsx';
+
+type Route = { name: 'list' } | { name: 'practice'; id: string } | { name: 'exam' };
+
+function parseHash(hash: string): Route {
+  const parts = hash.replace(/^#\/?/, '').split('/');
+  if (parts[0] === 'practice' && parts[1]) return { name: 'practice', id: decodeURIComponent(parts[1]) };
+  if (parts[0] === 'exam') return { name: 'exam' };
+  return { name: 'list' };
+}
+
+function useRoute(): Route {
+  const [route, setRoute] = useState(() => parseHash(window.location.hash));
+  useEffect(() => {
+    const on = () => {
+      setRoute(parseHash(window.location.hash));
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener('hashchange', on);
+    return () => window.removeEventListener('hashchange', on);
+  }, []);
+  return route;
+}
+
+export const DISCLAIMER =
+  'Independent practice tool. Not affiliated with, endorsed by, or reflective of the official exams of 42 / École 42.';
 
 export function App() {
+  const [user, setUser] = useState<User | null | undefined>(undefined);
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [exercises, setExercises] = useState<ExerciseSummary[]>([]);
-  const [current, setCurrent] = useState<ExerciseDetail | null>(null);
-  const [source, setSource] = useState('');
-  const [result, setResult] = useState<GradeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const route = useRoute();
 
   useEffect(() => {
-    api.health().then(setHealth).catch((e: Error) => setError(e.message));
-    api.exercises().then((r) => setExercises(r.exercises)).catch(() => {});
+    api.me().then((r) => setUser(r.user), (e) => {
+      if (e instanceof ApiFailure && e.status === 401) setUser(null);
+      else {
+        setUser(null);
+        setError(errorText(e));
+      }
+    });
+    api.health().then(setHealth, () => {});
   }, []);
 
-  async function open(id: string) {
-    setResult(null);
-    setCurrent(await api.exercise(id));
-  }
-
-  async function grade() {
-    if (!current) return;
-    setError(null);
+  async function logout() {
     try {
-      setResult(await api.submitPractice(current.id, { filename: current.expected_files[0] ?? '', source }));
-    } catch (e) {
-      setError(e instanceof ApiFailure ? `${e.body.error}: ${e.message}` : String(e));
+      await api.logout();
+    } finally {
+      setUser(null);
+      window.location.hash = '#/';
     }
   }
 
+  let body;
+  if (user === undefined) body = <main><p className="muted">Loading…</p></main>;
+  else if (user === null) body = <Login onLoggedIn={(u) => { setError(null); setUser(u); }} />;
+  else if (route.name === 'practice') body = <Practice key={route.id} user={user} exerciseId={route.id} />;
+  else if (route.name === 'exam') body = <Exam user={user} />;
+  else body = <ExerciseList />;
+
   return (
     <div className="shell">
-      <header>
-        <strong>C Exam Gym</strong>
-        <span className="muted">
-          {health ? `grader ${health.grader} · hints ${health.hints_enabled ? 'on' : 'off'}` : '…'}
-        </span>
-      </header>
-
-      <main>
-        {!current && (
-          <ul className="list">
-            {exercises.map((e) => (
-              <li key={e.id}>
-                <button type="button" onClick={() => void open(e.id)}>
-                  L{e.level} · {e.id} {e.solved ? '✓' : ''}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {current && (
-          <section>
-            <button type="button" onClick={() => setCurrent(null)}>← Exercises</button>
-            <h2>{current.id}</h2>
-            <p className="muted">
-              Turn in: {current.expected_files.join(', ')} · Allowed: {current.allowed_functions.join(', ') || 'none'}
-            </p>
-            <pre className="subject">{current.subject_md}</pre>
-            <textarea
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              placeholder="Editor placeholder (CodeMirror 6 arrives in WP4)"
-            />
-            <button type="button" className="grade" onClick={() => void grade()}>Grade</button>
-            {result && (
-              <div className="result">
-                <strong>{result.verdict}</strong> · {result.message}
-                <div>{result.tests.map((t) => `[${t.status}]`).join(' ')}</div>
-                {result.first_failure && (
-                  <pre>
-                    {`expected: ${result.first_failure.expected_cat_e}\ngot:      ${result.first_failure.got_cat_e}`}
-                  </pre>
-                )}
-              </div>
-            )}
-          </section>
-        )}
-        {error && <p className="error">{error}</p>}
-      </main>
-
-      <footer>
-        Independent practice tool. Not affiliated with, endorsed by, or reflective of the official
-        exams of 42 / École 42.
-      </footer>
+      {user && (
+        <header className="top">
+          <a href="#/" className="brand">C Exam Gym</a>
+          <nav>
+            <a href="#/" aria-current={route.name !== 'exam' ? 'page' : undefined}>Practice</a>
+            <a href="#/exam" aria-current={route.name === 'exam' ? 'page' : undefined}>Exam</a>
+          </nav>
+          <span className="spacer" />
+          <button type="button" className="small-btn" onClick={() => void logout()} title={`Logged in as ${user.username}`}>
+            Log out
+          </button>
+        </header>
+      )}
+      {user && health && health.grader !== 'up' && (
+        <p className="warn small banner" role="status">The grader is down. Grading will fail until it is back.</p>
+      )}
+      {error && <p className="error pad">{error}</p>}
+      {body}
+      <footer className="disclaimer" data-testid="disclaimer">{DISCLAIMER}</footer>
     </div>
   );
 }
