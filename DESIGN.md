@@ -20,7 +20,7 @@ The open questions in `intent.md` were resolved with the brief's recommended def
 | 3 | Scope before Friday 27 Nov | **Grading + editor first, hints behind `HINTS_ENABLED`** (default `false`). If LLM hints are not stable by day 3, ship the deterministic diff-only hint. Practise on the seed's `./exam` CLI meanwhile. |
 | 4 | Access | **Tailscale only.** `web` binds `127.0.0.1:8042`; `sudo tailscale serve --bg 8042`. No LAN/Caddy, no root certificates on phones. `Tailscale-User-*` headers are ignored. |
 | 5 | Host changes | Required before launch, documented in README: `cgroup_enable=memory`, full upgrade + reboot for GhostLock (CVE-2026-43499), Tailscale ACL. Nothing in this repo changes the host. |
-| 6 | Timeouts / cooldown | **2 s wall + 1 s CPU per test**, 10 s compile, 30 s whole submission. Cooldown after a FAIL in exam mode: `[0.5, 2.5, 3, 5.5, 8.5, 14, 22.5]` minutes, repeating the last, reset on a new exercise, labelled "approximation". **No cooldown in practice mode** (the per-user rate limit still applies). |
+| 6 | Timeouts / cooldown | **2 s wall + 1 s CPU per test**, 10 s compile, 30 s whole submission. Cooldown after a FAIL in exam mode: `[0.5, 2.5, 3, 5.5, 8.5, 14, 22.5]` minutes, repeating the last, grows with each FAIL in the same slot (a failed grademe draws a new exercise but keeps the count) and resets when the slot is passed, labelled "approximation". **No cooldown in practice mode** (the per-user rate limit still applies). |
 | 7 | Hint model | **`deepseek/deepseek-v4-flash-0731`**, `reasoning: {"enabled": false}`, fallbacks `deepseek/deepseek-v4.1-flash-1017`, `anthropic/claude-haiku-5.5`; provider ignore list `["Inceptron"]`. Limits: 25 uncached calls/user/day, 3/exercise/user/day, $2/day app-wide stop, $10 OpenRouter key cap. |
 | 8 | Pi RAM | Unknown. Budget assumes 2 graders × 256 MiB + web 512 MiB + dispatcher 192 MiB. Check `free -h` before launch. |
 | – | Content licensing | `content/` is git-ignored. 42-derived subject texts are © 42 / École 42. Only original fixtures (`fixtures/`) are committed. Footer disclaimer on every page. |
@@ -50,10 +50,19 @@ c-exam-gym/
 │   ├── src/config.ts        env parsing
 │   ├── src/db.ts            opens SQLite (WAL), applies schema.sql
 │   ├── src/schema.sql       DB schema (§4)
-│   ├── src/stubs.ts         canned responses used by the stub routes
+│   ├── src/context.ts       shared services (Ctx), clock, ISO time helpers
+│   ├── src/auth.ts          argon2id, invites, sessions, cookie, login limiter
+│   ├── src/content.ts       content loader (SIGHUP reload), client view of exercises
+│   ├── src/normalize.ts     source normalization (§7)
+│   ├── src/grader.ts        dispatcher HTTP client
+│   ├── src/submissions.ts   grading pipeline shared by practice and grademe
+│   ├── src/exams.ts         exam state machine (§3.7)
+│   ├── src/hints/           report + diff hint, post-filter, OpenRouter client, service (§8)
 │   ├── src/routes/*.ts      one file per area: auth, exercises, practice, hints, exams, health
+│   ├── prompts/             hint-v1.txt (system), hint-user-v1.txt (user template)
+│   ├── scripts/admin.ts     admin CLI: create | invite
 │   ├── config/exam-profiles.json
-│   ├── test/contract.test.ts
+│   ├── test/                contract + acceptance tests (fake dispatcher, :memory: DB)
 │   └── Dockerfile           builds web/ and runs api/
 ├── web/                     Vite + React + TS SPA
 │   └── src/api.ts           typed client for every endpoint in §3
@@ -309,14 +318,17 @@ with `status: "expired"` the first time it is read after `ends_at`.
 The client asks for confirmation before calling it. On PASS the slot's points are added and the
 next slot is drawn. On FAIL, `fail_policy: "new_exercise"` draws a different exercise at the
 same level (the Piscine default), `"same_exercise"` keeps it, and `next_grade_at` is set from
-the cooldown schedule (index = failures in this slot − 1, repeating the last value). Errors:
+the cooldown schedule (index = failures in this slot − 1, repeating the last value). The failure
+count stays with the slot when a FAIL draws a new exercise and resets only when the slot is passed.
+Errors:
 `429 cooldown` with `next_grade_at`, `410 exam_over` after `ends_at` (the late submission is
 not graded), `409 conflict` if the exam is finished.
 
 `POST /api/exams/:examId/finish` → `200` [`ExamStatus`] with `status: "finished"`.
 
-In exam mode there are no hints, no solution reveal and no redraw. Hint and solution routes
-return `403 forbidden` while an exam is active.
+In exam mode there are no hints, no solution reveal and no redraw. Hint and solution routes, and
+practice grading (`POST /api/practice/:exerciseId/submissions`), return `403 forbidden` while an
+exam is active.
 
 ## 4. Database schema (SQLite, WAL)
 
@@ -699,6 +711,7 @@ enforces 1 in flight per `user_id` as a backstop.
 | `OPENROUTER_API_KEY` | api | empty |
 | `HINT_MODEL` | api | `deepseek/deepseek-v4-flash-0731` |
 | `HINT_FALLBACK_MODELS` | api | `deepseek/deepseek-v4.1-flash-1017,anthropic/claude-haiku-5.5` |
+| `HINT_PROVIDER_IGNORE` | api | `Inceptron` (OpenRouter `provider.ignore`, comma-separated) |
 | `HINT_DAILY_USD_STOP` | api | 2 |
 | `SUBMISSIONS_PER_MIN` | api | 6 |
 | `COMPILE_TIMEOUT_S`, `TEST_TIMEOUT_S`, `TEST_CPU_S`, `SUBMISSION_TIMEOUT_S`, `GRADER_CONCURRENCY`, `GRADER_QUEUE_MAX`, `GRADER_IMAGE`, `JOBS_DIR` | dispatcher | §6.5 |

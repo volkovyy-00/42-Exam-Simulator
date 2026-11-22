@@ -13,6 +13,7 @@ export async function practiceRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }
       const user = userOf(req);
       const ex = ctx.content.get(req.params.exerciseId);
       if (!ex) return sendError(reply, 404, 'not_found', `unknown exercise ${req.params.exerciseId}`);
+      if (activeExam(ctx, user.id)) return sendError(reply, 403, 'forbidden', 'No practice grading during an exam.');
       try {
         const row = await gradeAndStore(ctx, {
           userId: user.id, exercise: ex, mode: 'practice', filename: req.body.filename, source: req.body.source,

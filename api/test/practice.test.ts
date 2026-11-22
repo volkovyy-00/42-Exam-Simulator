@@ -178,6 +178,26 @@ describe('practice', () => {
     assert.equal(during.statusCode, 403);
   });
 
+  it('practice grading is 403 during an active exam (no row, nothing graded), 200 after finish', async () => {
+    const req = as(t.app, await login(t.app, 'user_p10'));
+    const exam = (await req('POST', '/api/exams', { profile_id: 'piscine_exam' })).json();
+    const exId = exam.current.exercise_id as string;
+    const count = () => (t.app.db.prepare('SELECT COUNT(*) AS n FROM submissions WHERE exercise_id = ? AND user_id = (SELECT id FROM users WHERE username = ?)')
+      .get(exId, 'user_p10') as { n: number }).n;
+    const src = { filename: `${exId}.c`, source: 'int x;\n' };
+    const r = await req('POST', `/api/practice/${exId}/submissions`, src);
+    assert.equal(r.statusCode, 403);
+    assert.equal(r.json().error, 'forbidden');
+    assert.equal(r.json().message, 'No practice grading during an exam.');
+    assert.equal(count(), 0);
+    assert.equal(fake.requests.length, 0);
+    assert.equal((await req('GET', `/api/practice/${exId}/submissions`)).statusCode, 200, 'history stays readable');
+    assert.equal((await req('POST', `/api/exams/${exam.exam_id}/finish`)).statusCode, 200);
+    const ok = await req('POST', `/api/practice/${exId}/submissions`, src);
+    assert.equal(ok.statusCode, 200);
+    assert.equal(count(), 1);
+  });
+
   it('solved / solved_without_hints: a reveal before the PASS spoils it, a PASS before the reveal keeps it', async () => {
     const req = as(t.app, await login(t.app, 'user_p9'));
     const src = (f: string) => ({ filename: f, source: 'int x;\n' });
