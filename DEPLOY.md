@@ -81,9 +81,8 @@ Steps 1a to 1d end in **one** reboot. Do them all, reboot once, then check every
 - [ ] Copy the example config with `cp .env.example .env`. In `.env`, set `SESSION_SECRET` to
       32 random bytes, for example from `openssl rand -hex 32`. Leave `HINTS_ENABLED=false`
       unless you also set `OPENROUTER_API_KEY`.
-- [ ] In `.env`, set `GRADER_CONCURRENCY=1` (or delete that line). `.env.example` still says 2,
-      and a value in `.env` overrides the compose default of 1. Two sandboxes do not fit in the
-      Pi 4's memory budget.
+- [ ] Leave `GRADER_CONCURRENCY=1` in `.env` (the example's value). Two sandboxes do not fit
+      in the Pi 4's memory budget; raise it to 2 only on a 4 GB+ host.
 - [ ] Build the images with `docker compose --profile build build`. This also builds the
       `grader:pinned` sandbox.
 - [ ] Run `docker run --rm grader:pinned cc --version`. If the output differs from the line in
