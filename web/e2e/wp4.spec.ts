@@ -116,7 +116,9 @@ test.describe('key bar', () => {
     await page.keyboard.type('a;');
     await enter(page);
     await page.keyboard.type('b;');
-    await page.keyboard.press('ControlOrMeta+a');
+    // CodeMirror treats the WebKit iPhone profile as Apple (Mod = Cmd), but Playwright sends
+    // ControlOrMeta as Control on Linux, where Ctrl-A would only move to the line start.
+    await page.keyboard.press(test.info().project.use.browserName === 'webkit' ? 'Meta+a' : 'ControlOrMeta+a');
     await page.locator('[data-key="Tab"]').tap();
     expect(await editorText(page)).toBe('\ta;\n\tb;');
   });
@@ -233,6 +235,9 @@ test.describe('practice', () => {
     await focusEditor(page);
     await page.keyboard.type('wri');
     await expect(page.locator('.cm-tooltip-autocomplete')).toContainText('write');
+    // CodeMirror ignores accept within interactionDelay (75 ms) of the list opening; under load
+    // the assertion above can resolve inside that window and Enter then inserts a newline.
+    await page.waitForTimeout(150);
     await page.keyboard.press('Enter');
     expect(await editorText(page)).toBe('write');
     await page.keyboard.type('(1, "ret');
@@ -429,7 +434,7 @@ test.describe('layout and inputs', () => {
 
   test('login and register reach the exercise list', async ({ page }, testInfo) => {
     const invite = newInvite();
-    const friend = `friend-${testInfo.workerIndex}-${testInfo.retry}`;
+    const friend = `friend-${testInfo.workerIndex}-${testInfo.retry}-${testInfo.repeatEachIndex}`;
     await page.route('**/api/me', (r) => r.fulfill({ status: 401, json: { error: 'unauthorized', message: 'x' } }));
     await page.goto('/');
     await page.getByLabel('Username').fill(LOGIN_DEMO.username);
