@@ -24,9 +24,25 @@ export function outerDeadlineMs(cfg: DispatcherConfig, ex: Exercise): number {
   return Math.min(60_000, Math.max(cfg.submissionTimeoutS * 1000, need));
 }
 
-export function runnerJob(cfg: DispatcherConfig, ex: Exercise, studentFile: string): RunnerJob {
+/**
+ * job.json. `allow_asm` is not in the contract's RunnerJob yet (grader-only, additive): the
+ * runner's object-code asm check is skipped when it is true.
+ */
+export type GraderRunnerJob = RunnerJob & { allow_asm: boolean };
+
+/**
+ * RunnerOutput plus the grader-only "static" stage: the runner found a syscall/sysenter/int/svc
+ * instruction in student.o (an asm construct the source lexer missed, e.g. via token pasting).
+ */
+export type GraderRunnerOutput = Omit<RunnerOutput, 'stage'> & {
+  stage: RunnerOutput['stage'] | 'static';
+  static_message?: string;
+};
+
+export function runnerJob(cfg: DispatcherConfig, ex: Exercise, studentFile: string): GraderRunnerJob {
   return {
     kind: ex.kind,
+    allow_asm: ex.allow_asm === true,
     student_file: studentFile,
     has_main: ex.harness.main !== null,
     cflags_extra: ex.harness.cflags_extra,
@@ -65,15 +81,15 @@ export async function writeJobDir(cfg: DispatcherConfig, content: Content, ex: E
 }
 
 /** The last non-empty stdout line, validated as a RunnerOutput. */
-export function parseRunnerOutput(stdout: string): RunnerOutput | null {
+export function parseRunnerOutput(stdout: string): GraderRunnerOutput | null {
   const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
   const last = lines[lines.length - 1];
   if (!last) return null;
   let o: unknown;
   try { o = JSON.parse(last); } catch { return null; }
-  const r = o as RunnerOutput;
+  const r = o as GraderRunnerOutput;
   if (typeof r !== 'object' || r === null) return null;
-  if (!['compile', 'nm', 'link', 'tests'].includes(r.stage)) return null;
+  if (!['static', 'compile', 'nm', 'link', 'tests'].includes(r.stage)) return null;
   if (typeof r.compile_ok !== 'boolean' || typeof r.link_ok !== 'boolean') return null;
   if (typeof r.compile_stderr !== 'string' || typeof r.link_stderr !== 'string') return null;
   if (!Array.isArray(r.nm_symbols) || !Array.isArray(r.forbidden) || !Array.isArray(r.tests)) return null;
@@ -97,9 +113,12 @@ export function failBeforeSandbox(req: GradeJobRequest, started: number, stage: 
 }
 
 /** Turn runner output (or a killed container) into the response. Expected output lives only here. */
-export function judge(req: GradeJobRequest, ex: Exercise, started: number, out: RunnerOutput | null, killedReason: 'timeout' | 'signal' | null): GradeJobResponse {
+export function judge(req: GradeJobRequest, ex: Exercise, started: number, out: GraderRunnerOutput | null, killedReason: 'timeout' | 'signal' | null): GradeJobResponse {
   const b = base(req, started);
   if (out) b.runner_version = out.runner_version;
+  if (out && out.stage === 'static') {
+    return { ...b, verdict: 'FAIL', stage: 'static', message: 'forbidden construct: asm' };
+  }
   if (out && out.stage === 'compile' && !out.compile_ok) {
     return { ...b, verdict: 'FAIL', stage: 'compile', message: 'compilation failed', compile_stderr: cap16k(out.compile_stderr) };
   }

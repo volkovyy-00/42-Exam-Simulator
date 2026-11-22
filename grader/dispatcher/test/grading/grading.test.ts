@@ -14,6 +14,7 @@ import type { GradeJobResponse } from '@ceg/contract';
 import { buildApp } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import { cleanup, dockerRunArgs, makeDockerSandbox, type SandboxRunner } from '../../src/docker.ts';
+import { checkStatic } from '../../src/static.ts';
 import { FIXTURES } from '../fixtures-path.ts';
 
 const IMAGE = process.env.GRADER_IMAGE || 'grader:pinned';
@@ -44,6 +45,13 @@ before(async () => {
     limits: { timeout_ms: 2000, max_output_bytes: 65536 }, reference_path: 'refs/gym_probe.c',
     provenance: { repo: 'c-exam-gym', commit: null, license_code: 'MIT', license_subject: 'MIT' }, hint_tags: [],
   }));
+  // Test-only twin of gym_echo_first with allow_asm: proves the token-pasted asm version really
+  // works (so the static FAIL below is the object-code check, not a broken program).
+  const echoEx = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'exercises/0/gym_echo_first.json'), 'utf8'));
+  fs.writeFileSync(path.join(contentDir, 'exercises/9/gym_echo_asm.json'), JSON.stringify({
+    ...echoEx, id: 'gym_echo_asm', level: 9, expected_files: ['gym_echo_asm.c'], allowed_functions: [], allow_asm: true,
+    reference_path: 'refs/gym_echo_asm.c',
+  }));
   const real = makeDockerSandbox(IMAGE);
   const counting: SandboxRunner = (...a) => { sandboxCalls++; return real(...a); };
   app = await buildApp(loadConfig({ CONTENT_DIR: contentDir, JOBS_DIR: jobsDir, GRADER_IMAGE: IMAGE, GRADER_CONCURRENCY: '2' }),
@@ -66,6 +74,47 @@ async function submit(exercise_id: string, filename: string, source: string, use
   });
   return { status: r.statusCode, body: r.json() as GradeJobResponse & { error?: string } };
 }
+
+// gym_echo_first with raw write syscalls through a token-pasted __asm__: the source lexer never
+// sees "asm" or "syscall(" and nm -u is empty.
+const SYS_WRITE = process.arch === 'arm64'
+  ? `static long\tsys_write(long fd, const char *buf, long len)
+{
+\tregister long\tx0 CAT(__as, m__)("x0") = fd;
+\tregister long\tx1 CAT(__as, m__)("x1") = (long)buf;
+\tregister long\tx2 CAT(__as, m__)("x2") = len;
+\tregister long\tx8 CAT(__as, m__)("x8") = 64;
+
+\tCAT(__as, m__) volatile ("svc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x8) : "memory");
+\treturn (x0);
+}
+`
+  : `static long\tsys_write(long fd, const char *buf, long len)
+{
+\tlong\tret;
+
+\tCAT(__as, m__) volatile ("syscall" : "=a"(ret) : "a"(1L), "D"(fd), "S"(buf), "d"(len) : "rcx", "r11", "memory");
+\treturn (ret);
+}
+`;
+const ECHO_PASTED_ASM = `#define CAT(a, b) a##b
+
+${SYS_WRITE}
+int\tmain(int argc, char **argv)
+{
+\tlong\ti;
+
+\ti = 0;
+\tif (argc == 2)
+\t{
+\t\twhile (argv[1][i])
+\t\t\ti++;
+\t\tsys_write(1, argv[1], i);
+\t}
+\tsys_write(1, "\\n", 1);
+\treturn (0);
+}
+`;
 
 const echoNoNewline = REF_ECHO.replace('\twrite(1, "\\n", 1);\n', '');
 
@@ -155,6 +204,22 @@ describe('grading against real Docker', { concurrency: false }, () => {
     assert.equal(body.stage, 'static');
     assert.equal(body.message, 'forbidden construct: asm');
     assert.equal(sandboxCalls, before);
+  });
+
+  it('token-pasted __asm__ syscall → FAIL static (object-code check); it really runs with allow_asm; reference still PASS', async () => {
+    const ex = app.dispatcher.content().exercises.get('gym_echo_first')!;
+    assert.equal(checkStatic(ex, ECHO_PASTED_ASM), null, 'the lexer fast path must not catch this one');
+    const before = sandboxCalls;
+    const { body } = await submit('gym_echo_first', 'gym_echo_first.c', ECHO_PASTED_ASM);
+    assert.equal(body.verdict, 'FAIL', JSON.stringify(body));
+    assert.equal(body.stage, 'static');
+    assert.equal(body.message, 'forbidden construct: asm');
+    assert.equal(sandboxCalls, before + 1, 'caught in the sandbox, not by the lexer');
+    const allowed = await submit('gym_echo_asm', 'gym_echo_asm.c', ECHO_PASTED_ASM);
+    assert.equal(allowed.body.verdict, 'PASS', JSON.stringify(allowed.body));
+    const ref = await submit('gym_echo_first', 'gym_echo_first.c', REF_ECHO);
+    assert.equal(ref.body.verdict, 'PASS', JSON.stringify(ref.body));
+    assertClean();
   });
 
   it('while(1); → KO timed_out within 2 s + overhead, job < 30 s', async () => {

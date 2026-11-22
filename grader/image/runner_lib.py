@@ -3,6 +3,7 @@
 It never runs student code and never sees expected output. Called as
   python3 -I runner_lib.py prepare <job.json> <meta_dir>
   python3 -I runner_lib.py nm_check <nm_raw> <allow.txt> <res_dir>
+  python3 -I runner_lib.py asm_check <objdump_out> <res_dir>
   python3 -I runner_lib.py emit <stage> <meta_dir> <res_dir>
 """
 import base64
@@ -59,6 +60,7 @@ def prepare(job_path, meta):
     write(f"{meta}/kind", kind)
     write(f"{meta}/student_file", student)
     write(f"{meta}/has_main", "1" if job["has_main"] else "0")
+    write(f"{meta}/allow_asm", "1" if job.get("allow_asm") is True else "0")
     write(f"{meta}/cflags", "\n".join(flags))
     write(f"{meta}/compile_timeout_s", str(as_int(job["compile_timeout_s"], 1, 60)))
     write(f"{meta}/test_timeout_ms", str(as_int(job["test_timeout_ms"], 1, 60000)))
@@ -104,6 +106,34 @@ def nm_check(nm_raw, allow_path, res):
     forbidden = [s for s in syms if s not in allow]
     write(f"{res}/nm_symbols", json.dumps(syms))
     write(f"{res}/forbidden", "\n".join(forbidden))
+
+
+# Instructions that enter the kernel: x86-64 syscall/sysenter/int, aarch64 svc.
+FORBIDDEN_INSNS = {"syscall", "sysenter", "int", "svc"}
+INSN_PREFIXES = {"lock", "rep", "repe", "repz", "repne", "repnz", "notrack", "bnd", "data16", "addr32",
+                 "cs", "ds", "es", "fs", "gs", "ss", "rex", "rex.w", "rex.b", "rex.x", "rex.r"}
+
+
+def mnemonics(objdump_text):
+    """Instruction mnemonics from `objdump -d --no-show-raw-insn` output."""
+    for line in objdump_text.splitlines():
+        # "   4:\tsyscall" / "  10:\tint    $0x80" / "   8:\tsvc\t#0x0"
+        head, sep, insn = line.partition(":")
+        if not sep or not head.strip() or any(c not in "0123456789abcdefABCDEF" for c in head.strip()):
+            continue
+        tokens = insn.replace("\t", " ").split()
+        while tokens and tokens[0].lower() in INSN_PREFIXES:
+            tokens = tokens[1:]
+        if tokens:
+            yield tokens[0].lower()
+
+
+def asm_check(objdump_path, res):
+    text = read_text(objdump_path).decode("utf-8", "replace")
+    found = sorted({m for m in mnemonics(text) if m in FORBIDDEN_INSNS})
+    if found:
+        write(f"{res}/static", "forbidden construct: asm")
+        write(f"{res}/static_insns", "\n".join(found))
 
 
 def rc(path):
@@ -165,6 +195,8 @@ def emit(stage, meta, res):
     if os.path.exists(f"{res}/nm_symbols"):
         out["nm_symbols"] = json.loads(read_text(f"{res}/nm_symbols"))
         out["forbidden"] = [s for s in read_text(f"{res}/forbidden").decode().split("\n") if s]
+    if stage == "static":
+        out["static_message"] = read_text(f"{res}/static").decode() or "forbidden construct: asm"
     if stage == "tests":
         ids = json.loads(read_text(f"{meta}/ids"))
         max_out = int(read_text(f"{meta}/max_output_bytes"))
@@ -180,6 +212,8 @@ def main(argv):
         prepare(argv[2], argv[3])
     elif cmd == "nm_check":
         nm_check(argv[2], argv[3], argv[4])
+    elif cmd == "asm_check":
+        asm_check(argv[2], argv[3])
     elif cmd == "emit":
         emit(argv[2], argv[3], argv[4])
     else:

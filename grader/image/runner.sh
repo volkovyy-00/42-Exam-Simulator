@@ -16,7 +16,8 @@ STDERR_CAP=16384
 
 py() { python3 -I "$LIB" "$@"; }
 
-# Emit a RunnerOutput from what is on disk and stop. $1 = last stage reached.
+# Emit a RunnerOutput from what is on disk and stop. $1 = last stage reached
+# (static, compile, nm, link or tests).
 finish() {
 	py emit "$1" "$META" "$RES"
 	exit 0
@@ -47,6 +48,7 @@ TEST_CPU=$(cat "$META/test_cpu_s")
 MAX_OUT=$(cat "$META/max_output_bytes")
 NTESTS=$(cat "$META/ntests")
 HAS_MAIN=$(cat "$META/has_main")
+ALLOW_ASM=$(cat "$META/allow_asm")
 
 # Newline-separated cflags_extra from job.json (trusted content, validated by runner_lib).
 CFLAGS_EXTRA=$(cat "$META/cflags")
@@ -71,6 +73,17 @@ compile compile_a -c "$STUDENT" -o student.o
 cp "$RES/compile_a.err" "$RES/compile_stderr"
 cp "$RES/compile_a.rc" "$RES/compile_rc"
 [ "$(cat "$RES/compile_rc")" = 0 ] || finish compile
+
+# 2b. Object-code asm check, unless allow_asm. The dispatcher's source lexer is only the fast
+# path: token pasting (a##b) builds __asm__ past it, and raw syscalls never show up in nm -u.
+# Any syscall/sysenter/int (x86-64) or svc (aarch64) instruction in student.o fails "static".
+if [ "$ALLOW_ASM" != 1 ]; then
+	if ! objdump -d --no-show-raw-insn student.o > "$RES/objdump" 2> "$RES/objdump.err"; then
+		die_internal "objdump failed: $(head -c 2000 "$RES/objdump.err")"
+	fi
+	py asm_check "$RES/objdump" "$RES"
+	[ -s "$RES/static" ] && finish static
+fi
 
 # 3. Compile B (-fno-builtin) and nm -u on the student object only.
 compile compile_b -fno-builtin -c "$STUDENT" -o student_nm.o

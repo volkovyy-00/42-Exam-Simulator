@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Exercise } from '@ceg/contract';
 import { catE, firstDiffByte, koReason, type Observed } from '../src/compare.ts';
 import { loadConfig } from '../src/config.ts';
@@ -140,5 +144,25 @@ describe('scheduler', () => {
     assert.equal(await q, 'skeleton');
     release();
     await p;
+  });
+});
+
+describe('runner_lib asm_check (object code)', () => {
+  const lib = fileURLToPath(new URL('../../image/runner_lib.py', import.meta.url));
+  const check = (objdump: string) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ceg-asm-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'od'), objdump);
+      execFileSync('python3', ['-I', lib, 'asm_check', path.join(dir, 'od'), dir]);
+      return fs.existsSync(path.join(dir, 'static_insns')) ? fs.readFileSync(path.join(dir, 'static_insns'), 'utf8') : '';
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+  const head = 'student.o:     file format elf64-x86-64\n\nDisassembly of section .text:\n\n0000000000000000 <main>:\n';
+  it('flags syscall, sysenter, int and svc, ignores the rest', () => {
+    assert.equal(check(head + '   0:\tpush   %rbp\n   1:\tsyscall\n'), 'syscall');
+    assert.equal(check(head + '   0:\tint    $0x80\n   2:\tsysenter\n'), 'int\nsysenter');
+    assert.equal(check('0000000000000000 <f>:\n   0:\td2800808 \tmov\tx8, #0x40\n   4:\tsvc\t#0x0\n'), 'svc');
+    assert.equal(check(head + '   0:\tlock syscall\n'), 'syscall');
+    assert.equal(check(head + '   0:\tint3\n   1:\tcall   6 <main+0x6>\n   6:\tret\n'), '');
   });
 });
