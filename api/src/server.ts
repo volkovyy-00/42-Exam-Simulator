@@ -9,6 +9,13 @@ if (config.cookieSecure && !config.sessionSecret) {
 }
 const db = openDb(path.join(config.dataDir, 'gym.sqlite'));
 const app = await buildApp({ config, db, logger: true });
+app.log.info({ exercises: app.ctx.content.count, contentDir: config.contentDir }, 'content loaded');
+
+// Reload exercises on SIGHUP (DESIGN.md §5.2).
+process.on('SIGHUP', () => {
+  const n = app.ctx.content.reload((m) => app.log.warn(m));
+  app.log.info({ exercises: n }, 'content reloaded');
+});
 
 const shutdown = async () => {
   await app.close();

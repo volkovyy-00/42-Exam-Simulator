@@ -1,15 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import type { HintRatingRequest, HintRequest } from '@ceg/contract';
-import type { Config } from '../config.ts';
-import { stubHint, stubHintState } from '../stubs.ts';
-import { sendError, stub } from './util.ts';
+import type { Ctx } from '../context.ts';
+import { activeExam } from '../exams.ts';
+import { hintState, requestHint } from '../hints/service.ts';
+import { HttpError } from '../submissions.ts';
+import { idParam, sendError, userOf } from './util.ts';
 
-// TODO(WP3): level gating, anti-farming (code hash), quotas, OpenRouter client, post-filter,
-// hint_cache + hint_log, 403 while an exam is active (DESIGN.md §3.6, §8).
+const EXAM_MSG = 'No hints during an exam.';
 
-export async function hintRoutes(app: FastifyInstance, opts: { config: Config }) {
-  app.get<{ Params: { exerciseId: string } }>('/api/practice/:exerciseId/hints', async (_req, reply) => {
-    return stub(reply).send({ ...stubHintState, enabled: opts.config.hintsEnabled });
+export async function hintRoutes(app: FastifyInstance, { ctx }: { ctx: Ctx }) {
+  app.get<{ Params: { exerciseId: string } }>('/api/practice/:exerciseId/hints', async (req, reply) => {
+    const user = userOf(req);
+    if (!ctx.content.get(req.params.exerciseId)) return sendError(reply, 404, 'not_found', 'unknown exercise');
+    if (activeExam(ctx, user.id)) return sendError(reply, 403, 'forbidden', EXAM_MSG);
+    return reply.send(hintState(ctx, user.id, req.params.exerciseId));
   });
 
   app.post<{ Params: { exerciseId: string }; Body: HintRequest }>('/api/practice/:exerciseId/hints', {
@@ -21,11 +25,17 @@ export async function hintRoutes(app: FastifyInstance, opts: { config: Config })
         properties: { submission_id: { type: 'integer', minimum: 1 } },
       },
     },
-  }, async (_req, reply) => {
-    if (!opts.config.hintsEnabled) {
-      return sendError(stub(reply), 503, 'hints_disabled', 'Hints are turned off on this server.');
+  }, async (req, reply) => {
+    const user = userOf(req);
+    const ex = ctx.content.get(req.params.exerciseId);
+    if (!ex) return sendError(reply, 404, 'not_found', 'unknown exercise');
+    if (activeExam(ctx, user.id)) return sendError(reply, 403, 'forbidden', EXAM_MSG);
+    try {
+      return reply.send(await requestHint(ctx, user.id, ex, req.body.submission_id));
+    } catch (err) {
+      if (err instanceof HttpError) return reply.code(err.status).send(err.body);
+      throw err;
     }
-    return stub(reply).send(stubHint);
   });
 
   app.post<{ Params: { hintId: string }; Body: HintRatingRequest }>('/api/hints/:hintId/rating', {
@@ -37,5 +47,13 @@ export async function hintRoutes(app: FastifyInstance, opts: { config: Config })
         properties: { rating: { enum: ['helpful', 'wrong'] } },
       },
     },
-  }, async (_req, reply) => stub(reply).code(204).send());
+  }, async (req, reply) => {
+    const user = userOf(req);
+    if (activeExam(ctx, user.id)) return sendError(reply, 403, 'forbidden', EXAM_MSG);
+    const id = idParam(req.params.hintId);
+    const info = id === null ? { changes: 0 } :
+      ctx.db.prepare('UPDATE hint_log SET rating = ? WHERE id = ? AND user_id = ?').run(req.body.rating, id, user.id);
+    if (info.changes === 0) return sendError(reply, 404, 'not_found', 'unknown hint');
+    return reply.code(204).send();
+  });
 }

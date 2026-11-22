@@ -29,6 +29,8 @@ export interface Config {
   hintModel: string;
   hintFallbackModels: string[];
   hintDailyUsdStop: number;
+  /** OpenRouter provider ignore list (DESIGN.md §8). */
+  hintProviderIgnore: string[];
   examProfilesPath: string;
 }
 
@@ -50,6 +52,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       'deepseek/deepseek-v4.1-flash-1017,anthropic/claude-haiku-5.5')
       .split(',').map((s) => s.trim()).filter(Boolean),
     hintDailyUsdStop: num(env.HINT_DAILY_USD_STOP, 2),
+    hintProviderIgnore: (env.HINT_PROVIDER_IGNORE ?? 'Inceptron').split(',').map((s) => s.trim()).filter(Boolean),
     examProfilesPath: path.resolve(here, '../config/exam-profiles.json'),
   };
 }
