@@ -44,8 +44,9 @@ Steps 1a to 1d end in **one** reboot. Do them all, reboot once, then check every
 
       Wait until `systemctl is-active full-upgrade` prints `inactive` (not `activating` or
       `failed`) and the journal ends without errors. If it printed `failed`, read
-      `journalctl -u full-upgrade`, fix the cause, and run `sudo dpkg --configure -a` before
-      trying again.
+      `journalctl -u full-upgrade`, fix the cause, and run `sudo dpkg --configure -a`. Before
+      running the `systemd-run` line again, clear the failed unit with
+      `sudo systemctl reset-failed full-upgrade`; otherwise systemd refuses to reuse the name.
 - [ ] **1d. Reboot once.** `sudo reboot`. This one reboot picks up both the cmdline change and
       the new kernel.
 - [ ] **1e. Check after the reboot.**
@@ -125,8 +126,12 @@ Steps 1a to 1d end in **one** reboot. Do them all, reboot once, then check every
       ```
 
       Then open `https://<pi>.<tailnet>.ts.net:8443` from a phone on the tailnet.
-- [ ] **Tailscale ACL with `tag:pi`.** Tag the Pi `tag:pi` (admin console → Machines → the Pi →
-      Edit ACL tags). Then let the group reach the app on 8443 and give the Pi no rule as a
+- [ ] **Tailscale ACL with `tag:pi`.** **Keep a LAN SSH session or a console (keyboard and
+      screen) open on the Pi while you do this step.** Tagging moves the Pi from your user to the
+      tag, so user-based Tailscale SSH rules (`"dst": ["autogroup:self"]`) no longer match it.
+      Without the `"ssh"` rule below, Tailscale SSH locks you out of the Pi.
+
+      Tag the Pi `tag:pi` (admin console → Machines → the Pi → Edit ACL tags). Then let the group reach the app on 8443 and give the Pi no rule as a
       source, so it cannot initiate connections to other tailnet devices. Example policy (merge
       it into yours; keep any rules other services on the Pi, such as n8n on 443, still need):
 
@@ -145,11 +150,19 @@ Steps 1a to 1d end in **one** reboot. Do them all, reboot once, then check every
           { "action": "accept", "src": ["autogroup:admin"], "dst": ["tag:pi:*"] },
           // No rule has tag:pi as src, so the Pi cannot open connections to other devices.
         ],
+        "ssh": [
+          // Admins: Tailscale SSH into the Pi as its login user. Replace "pi" with yours
+          // (`whoami` on the Pi). Name the user; don't use autogroup:nonroot with a tag dst.
+          { "action": "accept", "src": ["autogroup:admin"], "dst": ["tag:pi"], "users": ["pi"] },
+        ],
       }
       ```
 
       If your policy still has the default allow-all rule, remove it, or it overrides all of
       the above.
+      After saving, check from another device that `tailscale ssh <user>@<pi>` still works
+      before you close the LAN/console session. Syntax: [Tailscale SSH](https://tailscale.com/kb/1193/tailscale-ssh)
+      and the [policy file reference](https://tailscale.com/docs/reference/syntax/policy-file).
 - [ ] If you change `content/` later, reload it without a restart:
       `docker compose kill -s SIGHUP web grader-dispatcher`.
 

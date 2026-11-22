@@ -13,13 +13,46 @@ export const USERNAME_RE = /^[a-z0-9_-]{3,20}$/;
 
 export const sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
+// OWASP Password Storage Cheat Sheet: argon2id, 19 MiB, t=2, p=1. Hashes made with other
+// params (e.g. the library defaults, 64 MiB / t=3 / p=4) still verify: verify reads the params
+// stored in the hash.
+export const ARGON2_OPTIONS = { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
+
+// At most 2 argon2 calls at once. Each call can take up to 64 MiB (old hashes), and 4 concurrent
+// logins measured 371 MiB RSS, over web's 320m mem_limit on the Pi 4.
+export const ARGON2_MAX_CONCURRENT = 2;
+
+/** Minimal FIFO async semaphore. */
+export class Semaphore {
+  private active = 0;
+  private waiting: Array<() => void> = [];
+  private readonly max: number;
+  constructor(max: number) {
+    this.max = max;
+  }
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.active >= this.max) await new Promise<void>((resolve) => this.waiting.push(resolve));
+    else this.active++;
+    try {
+      return await fn();
+    } finally {
+      const next = this.waiting.shift();
+      if (next) next(); // hand the slot straight to the next waiter
+      else this.active--;
+    }
+  }
+}
+
+const argon2Slots = new Semaphore(ARGON2_MAX_CONCURRENT);
+
 export function hashPassword(pw: string): Promise<string> {
-  return argon2.hash(pw, { type: argon2.argon2id });
+  return argon2Slots.run(() => argon2.hash(pw, ARGON2_OPTIONS));
 }
 
 export async function verifyPassword(hash: string, pw: string): Promise<boolean> {
   try {
-    return await argon2.verify(hash, pw);
+    return await argon2Slots.run(() => argon2.verify(hash, pw));
   } catch {
     return false;
   }
