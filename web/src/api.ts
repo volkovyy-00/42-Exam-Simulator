@@ -76,3 +76,13 @@ export const api = {
   grademe: (examId: number, b: SubmitRequest) => call<GrademeResponse>('POST', `/api/exams/${examId}/grademe`, b),
   finishExam: (examId: number) => call<ExamStatus>('POST', `/api/exams/${examId}/finish`),
 };
+
+/** One line for the UI from any thrown value. */
+export function errorText(e: unknown): string {
+  if (e instanceof ApiFailure) {
+    if (e.body.retry_after_s) return `${e.message} Try again in ${e.body.retry_after_s} s.`;
+    return e.message || e.body.error;
+  }
+  if (e instanceof TypeError) return 'Network error. Check your connection.';
+  return String(e);
+}
