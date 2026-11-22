@@ -14,6 +14,7 @@
   "dependencies": {
     "@ceg/contract": "*",
     "@fastify/static": "^10.1.12",
+    "argon2": "^0.45.2",
     "better-sqlite3": "^12.11.1",
     "fastify": "^5.12.8"
   },
