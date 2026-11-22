@@ -58,3 +58,20 @@ sudo tailscale serve --bg 8042     # https://<pi>.<tailnet>.ts.net
 
 Code: MIT. Exercise statements imported into `content/` belong to 42 / École 42 and stay private.
 The seed's code, tests and solutions are MIT © 2026 Tomas Couto (kept in `content/LICENSE-seed`).
+
+## Grader toolchain (`grader:pinned`)
+
+Every submission is compiled with the image's `cc` (Debian trixie `gcc-14`). Print it with:
+
+```sh
+docker run --rm grader:pinned cc --version
+```
+
+```
+cc (Debian 14.2.0-19) 14.2.0
+```
+
+That line comes from Debian trixie's `gcc-14` package (14.2.0-19), read from
+`buildpack-deps:trixie`. `grader:pinned` itself was not built when this was written: the build
+environment could not reach the Debian mirrors. After `docker compose --profile build build` on
+the Pi, run the command above and replace the line if it differs.
